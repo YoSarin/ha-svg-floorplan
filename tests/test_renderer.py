@@ -175,7 +175,6 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect id="room" width="100" height="100"/>
-  <text id="room-values" x="10" y="20"/>
 </svg>
 """
     svg_path = tmp_path / "floorplan.svg"
@@ -185,16 +184,12 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
         (
             ElementAssignment(
                 "room",
-                display_entity_ids=(),
-                color_entity_id="sensor.temperature",
-                color_mode="fill",
-            ),
-            ElementAssignment(
-                "room-values",
                 display_entity_ids=(
                     "sensor.temperature",
                     "sensor.humidity",
                 ),
+                color_entity_id="sensor.temperature",
+                color_mode="fill",
             ),
         ),
     )
@@ -215,6 +210,14 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
     assert b"Living temperature: 22 \xc2\xb0C" in svg
     assert b"Living humidity: 45 %" in svg
     assert b":tspan" in svg
+    root = _renderer_module.ET.fromstring(svg)
+    overlay = next(
+        element
+        for element in root.iter()
+        if element.tag.endswith("text")
+    )
+    assert overlay.attrib["x"] == "50"
+    assert overlay.attrib["y"] == "50"
 
 
 def test_configured_svg_reloads_sensor_choices_without_config_flow(
@@ -223,7 +226,6 @@ def test_configured_svg_reloads_sensor_choices_without_config_flow(
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect id="room" width="100" height="100"/>
-  <text id="room-values" x="10" y="20"/>
 </svg>
 """
     source_path = tmp_path / "floorplan.svg"
@@ -231,12 +233,9 @@ def test_configured_svg_reloads_sensor_choices_without_config_flow(
     assignments = (
         ElementAssignment(
             "room",
+            display_entity_ids=("sensor.temperature", "sensor.humidity"),
             color_entity_id="sensor.temperature",
             color_mode="fade",
-        ),
-        ElementAssignment(
-            "room-values",
-            display_entity_ids=("sensor.temperature", "sensor.humidity"),
         ),
     )
 

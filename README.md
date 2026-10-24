@@ -30,9 +30,10 @@ no system fonts installed.
 3. Enter the SVG path relative to the configuration directory:
    `floorplans/house.svg`.
 4. If the SVG has no `data-ha-entity` metadata, the setup flow walks through
-   its identified shapes and text elements by their SVG editor labels. On a
-   text element, choose one or more sensors to display. Independently, choose
-   a color sensor and solid or fading color, or explicitly skip the element.
+   its identified shapes and text elements by their SVG editor labels. Choose
+   one or more sensors to display on text, rectangles, circles, or ellipses;
+   shape readings are added as centered text. Independently, choose a color
+   sensor and solid or fading color, or explicitly skip the element.
    Setup saves a configured copy beside the original (for example
    `house.configured.svg`) with reusable sensor metadata embedded in the SVG.
 5. Restart or reload the integration after changing the source SVG.
@@ -74,9 +75,10 @@ The metadata attributes are optional except `data-ha-entity`; omitted values
 use the defaults below. Colors must be six-digit hex colors. The integration
 updates all marked area and value elements within a room group.
 Elements without metadata can instead be assigned during setup. Supported
-elements need an SVG `id`. Text elements can display multiple sensors; every
-value is shown on its own line with its Home Assistant friendly name and unit.
-The color sensor is selected independently. The setup flow uses labels from
+elements need an SVG `id`. Text elements, rectangles, circles, and ellipses can display multiple sensors;
+shape readings are added as centered text, one value per line with its Home
+Assistant friendly name and unit. The color sensor is selected independently.
+The setup flow uses labels from
 SVG editors such as Inkscape to identify each element, falling back to its
 parent layer label and then its SVG ID.
 

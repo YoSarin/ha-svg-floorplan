@@ -46,6 +46,7 @@ ASSIGNABLE_TAGS = {
     "rect",
     "text",
 }
+TEXT_OVERLAY_TAGS = {"circle", "ellipse", "rect"}
 
 
 class FloorplanError(ValueError):
@@ -360,9 +361,9 @@ def _bindings(
                 )
             continue
 
-        if assignment.display_entity_ids and tag != "text":
+        if assignment.display_entity_ids and tag not in {"text", *TEXT_OVERLAY_TAGS}:
             raise FloorplanError(
-                f"Display sensors can only be assigned to text elements "
+                f"Display sensors need a text or supported shape element "
                 f"({assignment.element_id!r})"
             )
         if any(
@@ -412,6 +413,67 @@ def _bindings(
         )
 
     return tuple(bindings), display_entities_by_element
+
+
+def _add_text_overlay(
+    element: ET.Element,
+    parent: ET.Element,
+    lines: tuple[str, ...],
+) -> None:
+    """Place selected sensor readings in the center of a basic SVG shape."""
+    tag = element.tag.rsplit("}", 1)[-1]
+    try:
+        if tag == "rect":
+            x = float(element.attrib.get("x", "0"))
+            y = float(element.attrib.get("y", "0"))
+            width = float(element.attrib["width"])
+            height = float(element.attrib["height"])
+        elif tag == "circle":
+            radius = float(element.attrib["r"])
+            x = float(element.attrib["cx"]) - radius
+            y = float(element.attrib["cy"]) - radius
+            width = height = radius * 2
+        elif tag == "ellipse":
+            rx = float(element.attrib["rx"])
+            ry = float(element.attrib["ry"])
+            x = float(element.attrib["cx"]) - rx
+            y = float(element.attrib["cy"]) - ry
+            width, height = rx * 2, ry * 2
+        else:
+            raise FloorplanError(
+                f"Cannot place display text inside SVG <{tag}> elements"
+            )
+    except (KeyError, ValueError) as err:
+        raise FloorplanError(
+            f"Cannot determine the bounds of SVG element "
+            f"{element.attrib.get('id', '')!r} for text placement"
+        ) from err
+
+    if not all(math.isfinite(value) for value in (x, y, width, height)):
+        raise FloorplanError("SVG element bounds must be finite numbers")
+    if width <= 0 or height <= 0:
+        raise FloorplanError("SVG element bounds must have positive size")
+
+    text = ET.Element(
+        f"{{{SVG_NAMESPACE}}}text",
+        {
+            "x": f"{x + width / 2:g}",
+            "y": f"{y + height / 2:g}",
+            "text-anchor": "middle",
+            "dominant-baseline": "middle",
+            "font-family": "sans-serif",
+            "font-size": f"{min(width, height) * 0.14:g}",
+            "fill": "#17212b",
+        },
+    )
+    if transform := element.attrib.get("transform"):
+        text.set("transform", transform)
+    _set_text_lines(text, lines)
+    try:
+        index = list(parent).index(element)
+    except ValueError as err:
+        raise FloorplanError("Could not position sensor text in the SVG") from err
+    parent.insert(index + 1, text)
 
 
 def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
@@ -590,12 +652,24 @@ class FloorplanRenderer:
                 _set_text(elements_by_id[element_id], display)
 
         display_values = display_values or {}
+        parents = {
+            child: parent for parent in root.iter() for child in parent
+        }
         for element_id, entity_ids in self.display_entities_by_element.items():
             lines = tuple(
                 display_values.get(entity_id, f"{entity_id}: {states.get(entity_id, '—')}")
                 for entity_id in entity_ids
             )
-            _set_text_lines(elements_by_id[element_id], lines)
+            element = elements_by_id[element_id]
+            if element.tag.rsplit("}", 1)[-1] == "text":
+                _set_text_lines(element, lines)
+            else:
+                parent = parents.get(element)
+                if parent is None:
+                    raise FloorplanError(
+                        f"Could not position sensor text for SVG element {element_id!r}"
+                    )
+                _add_text_overlay(element, parent, lines)
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:

@@ -92,8 +92,8 @@ def _error_key(error: FloorplanError) -> str:
         return "invalid_color"
     if "IDs must be unique" in message:
         return "duplicate_ids"
-    if "Display sensors can only be assigned to text" in message:
-        return "display_sensors_require_text"
+    if "Display sensors need a text or supported shape" in message:
+        return "display_sensors_need_supported_element"
     if "Display entities must be sensors" in message:
         return "unsupported_display_entity"
     if "Color mode must be" in message:
@@ -246,7 +246,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "element_name": element.label,
         }
         fields: dict[Any, Any] = {}
-        if element.tag == "text":
+        if element.tag in {"text", "rect", "circle", "ellipse"}:
             fields[vol.Optional("display_entities")] = selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain=["sensor", "input_number"], multiple=True
