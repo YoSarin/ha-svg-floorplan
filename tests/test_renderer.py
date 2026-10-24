@@ -326,6 +326,32 @@ def test_skipped_elements_use_neutral_color_and_persist_in_configured_svg(
     assert b'data-ha-neutral="true"' in svg
 
 
+def test_device_selection_persists_per_svg_element(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect id="room_a" width="40" height="40"/>
+  <rect id="room_b" x="50" width="40" height="40"/>
+</svg>
+"""
+    source_path = tmp_path / "floorplan.svg"
+    source_path.write_text(source, encoding="utf-8")
+    assignments = (
+        ElementAssignment("room_a", device_id="device_a"),
+        ElementAssignment("room_b", device_id="device_b", neutralize=True),
+    )
+
+    configured_path = tmp_path / "floorplan.configured.svg"
+    configured_path.write_bytes(
+        FloorplanRenderer(source_path).configured_svg(assignments)
+    )
+    renderer = FloorplanRenderer(configured_path)
+
+    assert {
+        assignment.element_id: assignment.device_id
+        for assignment in renderer.assignments
+    } == {"room_a": "device_a", "room_b": "device_b"}
+
+
 def test_renders_svg_with_physical_dimensions(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="5mm"

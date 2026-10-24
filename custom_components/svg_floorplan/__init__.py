@@ -115,6 +115,7 @@ async def async_setup_entry(
                 color_entity_id=assignment.get("color_entity_id"),
                 color_mode=assignment.get("color_mode", "none"),
                 neutralize=assignment.get("neutralize", False),
+                device_id=assignment.get("device_id"),
             )
             for assignment in entry.data.get(CONF_ELEMENT_BINDINGS, [])
         )

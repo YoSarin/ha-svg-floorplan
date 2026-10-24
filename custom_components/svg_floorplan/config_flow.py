@@ -215,24 +215,25 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for assignment in active_renderer.assignments
         }
         self._assignment_index = 0
-        self._device_id_default = entry.data.get(CONF_DEVICE_ID)
-        if self._device_id_default is None:
-            self._device_id_default = self._infer_device_id(active_renderer)
+        self._legacy_device_id = entry.data.get(CONF_DEVICE_ID)
         return await self.async_step_device()
 
-    def _infer_device_id(self, renderer: FloorplanRenderer) -> str | None:
-        """Infer the selected device for entries created before device selection was stored."""
+    def _infer_device_id(
+        self, assignment: ElementAssignment | None
+    ) -> str | None:
+        """Infer the device for an assignment from its selected entities."""
+        if assignment is None:
+            return None
         entity_registry = er.async_get(self.hass)
-        for assignment in renderer.assignments:
-            entity_ids = (
-                *assignment.display_entity_ids,
-                *((assignment.color_entity_id,) if assignment.color_entity_id else ()),
-            )
-            for entity_id in entity_ids:
-                if (
-                    registry_entry := entity_registry.async_get(entity_id)
-                ) and registry_entry.device_id:
-                    return registry_entry.device_id
+        entity_ids = (
+            *assignment.display_entity_ids,
+            *((assignment.color_entity_id,) if assignment.color_entity_id else ()),
+        )
+        for entity_id in entity_ids:
+            if (
+                registry_entry := entity_registry.async_get(entity_id)
+            ) and registry_entry.device_id:
+                return registry_entry.device_id
         return None
 
     async def async_step_device(
@@ -242,6 +243,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             device_id = user_input["device_id"]
+            self._device_id_default = device_id
             entity_registry = er.async_get(self.hass)
             entries = er.async_entries_for_device(entity_registry, device_id)
             self._device_entities = []
@@ -265,8 +267,21 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._selected_device_id = device_id
                 return await self.async_step_assign()
 
+        element = self._pending_elements[self._assignment_index]
+        self.context["title_placeholders"] = {
+            "element_name": element.label,
+            "position": (
+                f"{self._assignment_index + 1} of {len(self._pending_elements)}"
+            ),
+        }
+        previous = self._existing_assignments.get(element.element_id)
+        device_default = (
+            previous.device_id
+            if previous and previous.device_id
+            else self._infer_device_id(previous) or self._legacy_device_id
+        )
         device_field = vol.Required("device_id")
-        if device_default := getattr(self, "_device_id_default", None):
+        if device_default:
             device_field = vol.Required("device_id", default=device_default)
         return self.async_show_form(
             step_id="device",
@@ -303,6 +318,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "color_entity_id": None,
                         "color_mode": "none",
                         "neutralize": True,
+                        "device_id": self._selected_device_id,
                     }
                 )
             else:
@@ -325,6 +341,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         ),
                         "color_entity_id": color_entity_id,
                         "color_mode": color_mode,
+                        "device_id": self._selected_device_id,
                     }
                 )
             self._assignment_index += 1
@@ -382,6 +399,8 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=Path(self._pending_path).stem,
                     source_path=self._pending_path,
                 )
+
+            return await self.async_step_device()
 
         return self._show_assignment_form()
 
@@ -480,6 +499,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 color_entity_id=assignment["color_entity_id"],
                 color_mode=assignment["color_mode"],
                 neutralize=assignment.get("neutralize", False),
+                device_id=assignment.get("device_id"),
             )
             for assignment in self._pending_assignments
         )
@@ -498,8 +518,6 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_SOURCE_SVG_PATH: source_path or path,
             CONF_ELEMENT_BINDINGS: list(assignments),
         }
-        if selected_device_id := getattr(self, "_selected_device_id", None):
-            data[CONF_DEVICE_ID] = selected_device_id
         return self.async_create_entry(
             title=title or Path(path).stem,
             data=data,
@@ -523,7 +541,6 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             **entry.data,
             CONF_SVG_PATH: configured_relative_path,
             CONF_SOURCE_SVG_PATH: next_source_path,
-            CONF_DEVICE_ID: self._selected_device_id,
             CONF_ELEMENT_BINDINGS: [],
         }
         return self.async_update_reload_and_abort(entry, data=data)

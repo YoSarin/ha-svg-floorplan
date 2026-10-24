@@ -10,7 +10,7 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nSelect one or more entities from the chosen device to display on this element. Existing text is updated; readings on rectangles, circles, and ellipses are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same device to control this element's color. Its numeric state is mapped to the color scale. Choose solid color or fade to transparent. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose one or more entities from this element's device to display here. Existing text is updated; readings on rectangles, circles, and ellipses are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same device to control this element's color. Its numeric state is mapped to the color scale. Choose solid color or fade to transparent. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
         "data": {
           "display_entities": "Entities to display on this element",
           "display_position": "Where to place the readings",
@@ -20,8 +20,8 @@
         }
       },
       "device": {
-        "title": "Choose a device",
-        "description": "Choose the Home Assistant device that provides the entities for this floor plan. The following setup steps will only offer sensor and input number entities belonging to this device.",
+        "title": "Device for {element_name} ({position})",
+        "description": "Choose the Home Assistant device for this SVG element. Its sensor and input number entities will be offered on the next step. You will choose a device separately for each element.",
         "data": {
           "device_id": "Device"
         }

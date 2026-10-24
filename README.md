@@ -51,9 +51,10 @@ no system fonts installed.
    `floorplans/house.svg`.
 4. The setup flow walks through identified shapes and text elements by their
    SVG editor labels or IDs. It does not require pre-authored Home Assistant
-   metadata. First choose a Home Assistant device; its sensor and input number
-   entities are then offered for assignment. Choose one or more entities to display on
-   text, rectangles, circles, or ellipses; shape readings are added as text.
+   metadata. For each element, choose its Home Assistant device; that device's
+   sensor and input number entities are then offered for assignment. Choose one
+   or more entities to display on text, rectangles, circles, or ellipses;
+   shape readings are added as text.
    Automatic placement centers readings in room shapes and places readings
    for floor-plan-sized backdrops near their top-left edge; you can override
    the position. Independently, choose an entity to control the element's
@@ -114,7 +115,8 @@ room-sized shapes and the top-left edge for floor-plan-sized backdrops. You can
 choose center or a corner manually. The color entity is selected independently.
 During setup, a device is chosen first, and the display and color entity
 selectors are limited to sensor and input number entities registered to it.
-The setup flow uses labels from
+The setup flow chooses a device for each element and limits that element's
+entity selectors to the selected device. It uses labels from
 SVG editors such as Inkscape to identify each element, falling back to its
 parent layer label and then its SVG ID.
 
