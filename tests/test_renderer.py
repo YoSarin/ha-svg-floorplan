@@ -357,23 +357,16 @@ def test_rejects_assignment_to_unknown_svg_element(tmp_path: Path) -> None:
         )
 
 
-def test_example_svg_has_both_sensor_bindings(tmp_path: Path) -> None:
-    example = Path(__file__).parents[1] / "examples" / "two_rooms.svg"
+def test_example_house_svg_renders_and_exposes_labeled_areas(tmp_path: Path) -> None:
+    example = Path(__file__).parents[1] / "examples" / "example_house.svg"
     renderer = FloorplanRenderer(example)
 
-    svg, png = renderer.render(
-        {
-            "sensor.teplomer_obyvak_temperature": "21.5",
-            "sensor.teplomer_venku_temperature": "8.2",
-        }
-    )
+    svg, png = renderer.render({})
 
-    assert set(renderer.entity_ids) == {
-        "sensor.teplomer_obyvak_temperature",
-        "sensor.teplomer_venku_temperature",
-    }
-    assert b"21.5 \xc2\xb0C" in svg
-    assert b"8.2 \xc2\xb0C" in svg
+    assert renderer.entity_ids == ()
+    assert len(renderer.assignable_elements) == 10
+    assert any(element.label == "Obývák" for element in renderer.assignable_elements)
+    assert b"data:image/png;base64," in svg
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
 

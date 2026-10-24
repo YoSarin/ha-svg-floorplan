@@ -138,9 +138,10 @@ added to another Home Assistant installation.
 Values between color stops are linearly interpolated. Unknown or non-numeric
 sensor states are shown as `—` and use the neutral gray `#808080`.
 
-An example matching the sensors discussed is in
-[`examples/two_rooms.svg`](examples/two_rooms.svg). You can copy it into your
-HA config directory and update the entities and layout.
+The [`examples/example_house.svg`](examples/example_house.svg) file shows a
+simple house layout with separately labeled areas and a bitmap outline. It has
+no Home Assistant metadata: add it through the integration and assign entities
+to areas during setup. Copy it into your HA config directory to try the flow.
 
 ## Development
 
