@@ -8,8 +8,9 @@
   "documentation": "https://github.com/YoSarin/ha-svg-floorplan",
   "integration_type": "helper",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/YoSarin/ha-svg-floorplan/issues",
   "requirements": [
     "resvg-py==0.5.0"
   ],
-  "version": "0.1.0"
+  "version": "0.1.1"
 }
