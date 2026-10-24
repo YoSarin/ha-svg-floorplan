@@ -14,8 +14,13 @@ from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_SVG_PATH, DOMAIN, MAX_SVG_BYTES
-from .renderer import FloorplanError, FloorplanRenderer
+from .const import (
+    CONF_ELEMENT_BINDINGS,
+    CONF_SVG_PATH,
+    DOMAIN,
+    MAX_SVG_BYTES,
+)
+from .renderer import ElementAssignment, FloorplanError, FloorplanRenderer
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = (Platform.IMAGE,)
@@ -81,7 +86,17 @@ async def async_setup_entry(
     """Set up an SVG floor plan from a config entry."""
     try:
         path = _source_path(hass, entry.data[CONF_SVG_PATH])
-        renderer = await hass.async_add_executor_job(FloorplanRenderer, path)
+        assignments = tuple(
+            ElementAssignment(**assignment)
+            for assignment in entry.data.get(CONF_ELEMENT_BINDINGS, [])
+        )
+        renderer = await hass.async_add_executor_job(
+            FloorplanRenderer, path, assignments
+        )
+        if not renderer.entity_ids:
+            raise FloorplanError(
+                "SVG has no Home Assistant entity bindings. Reconfigure the floor plan."
+            )
         placeholder = FloorplanRuntimeData(
             renderer, b"", b"", datetime.now(UTC), asyncio.Lock()
         )

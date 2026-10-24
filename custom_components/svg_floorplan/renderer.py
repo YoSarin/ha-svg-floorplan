@@ -25,7 +25,27 @@ from .const import (
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+PHYSICAL_LENGTH_RE = re.compile(
+    r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(mm|cm|in|pt|pc)\s*$"
+)
+PIXELS_PER_UNIT = {
+    "mm": 96 / 25.4,
+    "cm": 96 / 2.54,
+    "in": 96.0,
+    "pt": 96 / 72,
+    "pc": 16.0,
+}
 VALUE_ROLES = {"area", "glow", "value"}
+ASSIGNABLE_TAGS = {
+    "circle",
+    "ellipse",
+    "line",
+    "path",
+    "polygon",
+    "polyline",
+    "rect",
+    "text",
+}
 
 
 class FloorplanError(ValueError):
@@ -47,6 +67,23 @@ class RoomBinding:
     comfort_color: str
     hot_color: str
     unit: str
+
+
+@dataclass(frozen=True)
+class ElementAssignment:
+    """A Home Assistant entity and rendering role assigned to an SVG element."""
+
+    element_id: str
+    entity_id: str
+    role: str
+
+
+@dataclass(frozen=True)
+class AssignableElement:
+    """An SVG element that can be configured from the integration setup flow."""
+
+    element_id: str
+    tag: str
 
 
 def _element_id(element: ET.Element) -> str | None:
@@ -154,7 +191,24 @@ def _set_text(element: ET.Element, text: str) -> None:
     element.text = text
 
 
-def _bindings(root: ET.Element) -> tuple[RoomBinding, ...]:
+def _normalize_physical_dimensions(root: ET.Element) -> None:
+    """Convert physical SVG sizes to CSS pixels for rasterizer compatibility."""
+    for dimension in ("width", "height"):
+        value = root.attrib.get(dimension)
+        if value is None:
+            continue
+        match = PHYSICAL_LENGTH_RE.fullmatch(value)
+        if match is None:
+            continue
+        number = float(match.group(1))
+        pixels = number * PIXELS_PER_UNIT[match.group(2)]
+        if math.isfinite(pixels) and pixels > 0:
+            root.set(dimension, f"{pixels:g}px")
+
+
+def _bindings(
+    root: ET.Element, assignments: tuple[ElementAssignment, ...]
+) -> tuple[RoomBinding, ...]:
     bindings: list[RoomBinding] = []
     for group in root.iter():
         entity_id = group.attrib.get("data-ha-entity")
@@ -233,15 +287,62 @@ def _bindings(root: ET.Element) -> tuple[RoomBinding, ...]:
             )
         )
 
-    if not bindings:
-        raise FloorplanError("SVG contains no elements with data-ha-entity")
+    elements_by_id = {
+        element_id: element
+        for element in root.iter()
+        if (element_id := _element_id(element)) is not None
+    }
+    assigned_elements: set[str] = set()
+    assigned_by_entity: dict[str, dict[str, list[str]]] = {}
+    for assignment in assignments:
+        if assignment.element_id in assigned_elements:
+            raise FloorplanError(
+                f"SVG element {assignment.element_id!r} has multiple assignments"
+            )
+        assigned_elements.add(assignment.element_id)
+        element = elements_by_id.get(assignment.element_id)
+        if element is None or element.tag.rsplit("}", 1)[-1] not in ASSIGNABLE_TAGS:
+            raise FloorplanError(
+                f"SVG element {assignment.element_id!r} cannot be assigned"
+            )
+        if not assignment.entity_id.startswith(("sensor.", "input_number.")):
+            raise FloorplanError(
+                f"{assignment.entity_id!r} must be a sensor or input_number entity"
+            )
+        if assignment.role not in VALUE_ROLES:
+            raise FloorplanError(f"{assignment.role!r} is not a supported element role")
+        roles = assigned_by_entity.setdefault(
+            assignment.entity_id, {"area": [], "glow": [], "value": []}
+        )
+        roles[assignment.role].append(assignment.element_id)
+
+    for entity_id, roles in assigned_by_entity.items():
+        bindings.append(
+            RoomBinding(
+                entity_id=entity_id,
+                area_ids=tuple(roles["area"]),
+                glow_ids=tuple(roles["glow"]),
+                value_ids=tuple(roles["value"]),
+                minimum=DEFAULT_MIN,
+                comfort=DEFAULT_COMFORT,
+                maximum=DEFAULT_MAX,
+                cold_color=DEFAULT_COLD_COLOR,
+                comfort_color=DEFAULT_COMFORT_COLOR,
+                hot_color=DEFAULT_HOT_COLOR,
+                unit=DEFAULT_UNIT,
+            )
+        )
     return tuple(bindings)
 
 
 class FloorplanRenderer:
     """Render SVG and PNG variants from an SVG definition and entity states."""
 
-    def __init__(self, source_path: Path) -> None:
+    def __init__(
+        self,
+        source_path: Path,
+        assignments: tuple[ElementAssignment, ...] = (),
+    ) -> None:
         self.source_path = source_path
         try:
             source = source_path.read_bytes()
@@ -267,7 +368,13 @@ class FloorplanRenderer:
             raise FloorplanError("SVG element IDs must be unique")
 
         self._source = source
-        self.bindings = _bindings(root)
+        self.bindings = _bindings(root, assignments)
+        self.assignable_elements = tuple(
+            AssignableElement(element_id, element.tag.rsplit("}", 1)[-1])
+            for element in root.iter()
+            if (element_id := _element_id(element)) is not None
+            and element.tag.rsplit("}", 1)[-1] in ASSIGNABLE_TAGS
+        )
 
     @property
     def entity_ids(self) -> tuple[str, ...]:
@@ -317,6 +424,11 @@ class FloorplanRenderer:
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:
+            raster_root = ET.fromstring(svg)
+            _normalize_physical_dimensions(raster_root)
+            raster_svg = ET.tostring(
+                raster_root, encoding="utf-8", xml_declaration=True
+            )
             font_directory = Path(__file__).with_name("fonts")
             font_files = [
                 str(font_directory / font_file)
@@ -328,7 +440,7 @@ class FloorplanRenderer:
                     f"Bundled fonts are missing from {font_directory}"
                 )
             png = resvg_py.svg_to_bytes(
-                svg_string=svg.decode("utf-8"),
+                svg_string=raster_svg.decode("utf-8"),
                 font_files=font_files,
                 sans_serif_family="DejaVu Sans",
             )

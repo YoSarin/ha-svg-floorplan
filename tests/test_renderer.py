@@ -22,6 +22,7 @@ _renderer_module = importlib.import_module(
 )
 FloorplanError = _renderer_module.FloorplanError
 FloorplanRenderer = _renderer_module.FloorplanRenderer
+ElementAssignment = _renderer_module.ElementAssignment
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -118,8 +119,67 @@ def test_rejects_invalid_room_metadata(tmp_path: Path, metadata: str) -> None:
 
 
 def test_rejects_svg_without_entity_bindings(tmp_path: Path) -> None:
-    with pytest.raises(FloorplanError, match="no elements with data-ha-entity"):
-        _renderer(tmp_path, '<svg xmlns="http://www.w3.org/2000/svg"/>')
+    renderer = _renderer(
+        tmp_path,
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<rect id="room" width="100" height="100"/></svg>',
+    )
+
+    assert renderer.entity_ids == ()
+    assert [(element.element_id, element.tag) for element in renderer.assignable_elements] == [
+        ("room", "rect")
+    ]
+
+
+def test_assigns_entity_to_svg_element_without_metadata(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect id="room" width="100" height="100" fill="white"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (ElementAssignment("room", "sensor.room_temperature", "area"),),
+    )
+
+    svg, png = renderer.render({"sensor.room_temperature": "22"})
+
+    assert renderer.entity_ids == ("sensor.room_temperature",)
+    assert b'fill: #22C55E' in svg
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_renders_svg_with_physical_dimensions(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="5mm"
+     viewBox="0 0 10 5">
+  <rect id="room" width="10" height="5"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (ElementAssignment("room", "sensor.room_temperature", "area"),),
+    )
+
+    _, png = renderer.render({"sensor.room_temperature": "22"})
+
+    assert Image.open(BytesIO(png)).size == (38, 19)
+
+
+def test_rejects_assignment_to_unknown_svg_element(tmp_path: Path) -> None:
+    source = '<svg xmlns="http://www.w3.org/2000/svg"><rect id="room"/></svg>'
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+
+    with pytest.raises(FloorplanError, match="cannot be assigned"):
+        FloorplanRenderer(
+            svg_path,
+            (ElementAssignment("missing", "sensor.room_temperature", "area"),),
+        )
 
 
 def test_example_svg_has_both_sensor_bindings(tmp_path: Path) -> None:

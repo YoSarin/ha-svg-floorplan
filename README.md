@@ -29,7 +29,10 @@ no system fonts installed.
 2. In **Settings → Devices & services**, add **SVG Floorplan Image**.
 3. Enter the SVG path relative to the configuration directory:
    `floorplans/house.svg`.
-4. Restart or reload the integration after changing the source SVG.
+4. If the SVG has no `data-ha-entity` metadata, the setup flow walks through
+   its identified shapes and text elements so you can select an entity and
+   display role for each one. Elements can be skipped.
+5. Restart or reload the integration after changing the source SVG.
 
 The integration creates two image entities: one SVG and one PNG. Use the PNG
 image entity with the Home Assistant Companion app's Android Picture widget.
@@ -67,6 +70,9 @@ temperature color in the center to transparent at the edges.
 The metadata attributes are optional except `data-ha-entity`; omitted values
 use the defaults below. Colors must be six-digit hex colors. The integration
 updates all marked area and value elements within a room group.
+Elements without metadata can instead be assigned during setup. Supported
+elements need an SVG `id`; each assignment selects a sensor or input number and
+one of the `area`, `value`, or `glow` roles.
 
 | Attribute | Default | Meaning |
 | --- | --- | --- |

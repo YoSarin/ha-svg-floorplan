@@ -3,14 +3,37 @@
     "step": {
       "user": {
         "title": "Add an SVG floor plan",
-        "description": "Enter the path to an SVG file under the Home Assistant configuration directory.",
+        "description": "Enter the path to an SVG file under the Home Assistant configuration directory. {details}",
         "data": {
           "svg_path": "Relative SVG path (for example floorplans/house.svg)"
+        }
+      },
+      "assign": {
+        "title": "Assign entities to SVG elements",
+        "description": "Element: {element_id} (<{tag}>). Select an entity and how it should be displayed, or leave the entity empty to skip this element. {details}",
+        "data": {
+          "entity_id": "Home Assistant entity",
+          "role": "Element behavior"
         }
       }
     },
     "error": {
-      "invalid_svg": "The file could not be read as a valid floor plan. Check its path and SVG metadata."
+      "invalid_path": "Enter a relative .svg path inside the Home Assistant configuration directory.",
+      "file_not_found": "The SVG file was not found. Check the path and spelling.",
+      "file_read_error": "The SVG file could not be read. Check the file permissions.",
+      "file_too_large": "The SVG exceeds the 2 MB size limit.",
+      "malformed_xml": "The file is not well-formed XML. Open it in an SVG editor and fix the reported XML error.",
+      "not_svg": "The XML root element is not an SVG document.",
+      "invalid_metadata": "The SVG has invalid Home Assistant metadata. Check entity IDs, element roles, and temperature settings.",
+      "unsupported_entity": "The assigned entity must be a sensor or input number.",
+      "missing_role_id": "Every element with a Home Assistant role must have an SVG ID.",
+      "missing_role": "An entity group must contain an element with the area, value, or glow role.",
+      "invalid_temperature_range": "Temperature thresholds must be numbers in increasing order: minimum, comfort, maximum.",
+      "invalid_color": "Temperature colors must use six-digit hex values, for example #22C55E.",
+      "duplicate_ids": "The SVG contains duplicate element IDs. Make each SVG ID unique.",
+      "render_failed": "The SVG is valid, but Home Assistant could not render it as a PNG. Check the SVG features and bundled renderer logs.",
+      "no_assignable_elements": "The SVG has no supported, identified shapes or text elements to assign. Add IDs to shapes or text in your SVG editor.",
+      "no_entity_assigned": "Assign at least one Home Assistant entity before continuing."
     },
     "abort": {
       "already_configured": "This SVG file is already configured."
