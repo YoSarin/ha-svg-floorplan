@@ -23,7 +23,6 @@ _renderer_module = importlib.import_module(
 FloorplanError = _renderer_module.FloorplanError
 FloorplanRenderer = _renderer_module.FloorplanRenderer
 ElementAssignment = _renderer_module.ElementAssignment
-order_display_entities = _renderer_module.order_display_entities
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -241,30 +240,6 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
     assert [
         span.text for span in overlay if span.tag.endswith("tspan")
     ] == ["22 °C", "45 %"]
-
-
-def test_explicit_display_order_precedes_remaining_selected_entities() -> None:
-    assert order_display_entities(
-        (
-            "sensor.temperature",
-            "sensor.humidity",
-            "sensor.pressure",
-            "sensor.battery",
-        ),
-        ("sensor.humidity", "sensor.temperature", "sensor.humidity"),
-    ) == (
-        "sensor.humidity",
-        "sensor.temperature",
-        "sensor.pressure",
-        "sensor.battery",
-    )
-
-
-def test_display_order_ignores_entities_not_selected_for_display() -> None:
-    assert order_display_entities(
-        ("sensor.temperature", "sensor.pressure"),
-        ("sensor.humidity", "sensor.pressure"),
-    ) == ("sensor.pressure", "sensor.temperature")
 
 
 def test_auto_places_text_at_edge_of_canvas_sized_shape(tmp_path: Path) -> None:

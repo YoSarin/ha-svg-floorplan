@@ -441,24 +441,6 @@ def _text_width_units(text: str) -> float:
     )
 
 
-def order_display_entities(
-    selected: tuple[str, ...], requested_order: tuple[str, ...]
-) -> tuple[str, ...]:
-    """Apply explicit reading positions, then preserve order for remaining entities."""
-    selected_ids = tuple(dict.fromkeys(selected))
-    ordered_ids = list(
-        dict.fromkeys(
-            entity_id
-            for entity_id in requested_order
-            if entity_id in selected_ids
-        )
-    )
-    ordered_ids.extend(
-        entity_id for entity_id in selected_ids if entity_id not in ordered_ids
-    )
-    return tuple(ordered_ids)
-
-
 def _normalize_physical_dimensions(root: ET.Element) -> None:
     """Convert physical SVG sizes to CSS pixels for rasterizer compatibility."""
     for dimension in ("width", "height"):

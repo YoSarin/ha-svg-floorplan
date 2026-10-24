@@ -122,8 +122,8 @@ During setup, assignable elements need an SVG `id`; useful editor labels are
 recommended so the flow can identify each element. Text elements, rectangles,
 circles, ellipses, polygons, and straight-edged paths can display multiple
 entities. Shape readings are added as text, one value and unit per line,
-without entity names. Use the five reading-order fields to choose the first
-five entities; any other selected entities follow in the entity list order.
+without entity names. All available entities are selected by default; reorder
+the selected entities in the selector to choose their reading order.
 Automatic
 placement uses the shape's center for room-sized shapes and the top-left edge
 for floor-plan-sized backdrops; you can choose a corner or center manually.

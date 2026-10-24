@@ -24,11 +24,9 @@ from .renderer import (
     ElementAssignment,
     FloorplanError,
     FloorplanRenderer,
-    order_display_entities,
 )
 
 _LOGGER = logging.getLogger(__name__)
-_DISPLAY_ORDER_SLOTS = 5
 _COLOR_MODES = [
     {"label": "Do not color this element", "value": "none"},
     {"label": "Solid color", "value": "fill"},
@@ -327,18 +325,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Choose displayed entities and color behavior for one SVG element."""
         if user_input is not None:
             element = self._pending_elements[self._assignment_index]
-            selected_display_entity_ids = tuple(
-                user_input.get("display_entities", ())
-            )
-            requested_display_order = tuple(
-                entity_id
-                for index in range(1, _DISPLAY_ORDER_SLOTS + 1)
-                if (entity_id := user_input.get(f"display_order_{index}"))
-            )
-            display_entity_ids = order_display_entities(
-                selected_display_entity_ids,
-                requested_display_order,
-            )
+            display_entity_ids = tuple(user_input.get("display_entities", ()))
             color_entity_id = user_input.get("color_entity")
             color_mode = user_input.get("color_mode", "fill")
             skipped = user_input.get("skip", False)
@@ -485,31 +472,13 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "display_entities",
                     default=display_entity_defaults,
                 )
-            ] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=entity_options,
+            ] = selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    include_entities=sorted(available_entity_ids),
                     multiple=True,
-                    mode=selector.SelectSelectorMode.LIST,
+                    reorder=True,
                 )
             )
-            for index in range(1, _DISPLAY_ORDER_SLOTS + 1):
-                order_field = f"display_order_{index}"
-                order_default = (
-                    display_entity_defaults[index - 1]
-                    if index <= len(display_entity_defaults)
-                    else None
-                )
-                order_key = (
-                    vol.Optional(order_field, default=order_default)
-                    if order_default is not None
-                    else vol.Optional(order_field)
-                )
-                fields[order_key] = selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=entity_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                )
             if element.tag not in {"text", "path", "polygon"}:
                 fields[
                     vol.Optional(
