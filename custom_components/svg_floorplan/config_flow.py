@@ -462,7 +462,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if previous and previous.color_mode == "none"
             else temperature_entity_default
         )
-        if element.tag in {"text", "rect", "circle", "ellipse"}:
+        if element.tag in {"text", "rect", "circle", "ellipse", "path", "polygon"}:
             fields[
                 vol.Optional(
                     "display_entities",
@@ -475,7 +475,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             )
-            if element.tag != "text":
+            if element.tag not in {"text", "path", "polygon"}:
                 fields[
                     vol.Optional(
                         "display_position",

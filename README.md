@@ -115,10 +115,12 @@ integration updates all marked area and value elements within a room group.
 
 During setup, assignable elements need an SVG `id`; useful editor labels are
 recommended so the flow can identify each element. Text elements, rectangles,
-circles, and ellipses can display multiple entities. Shape readings are added
-as text, one value and unit per line, without entity names. Automatic placement
-uses the center for room-sized shapes and the top-left edge for floor-plan-sized
-backdrops; you can choose a corner or center manually.
+circles, ellipses, polygons, and straight-edged paths can display multiple
+entities. Shape readings are added as text, one value and unit per line,
+without entity names. The selected entity order is the reading order; deselect
+and reselect entities in the desired order to rearrange them. Automatic
+placement uses the shape's center for room-sized shapes and the top-left edge
+for floor-plan-sized backdrops; you can choose a corner or center manually.
 
 For each element, setup lets you select one or more devices and then choose
 display and color entities from the selected devices. All eligible entities

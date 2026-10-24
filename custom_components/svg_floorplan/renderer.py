@@ -48,7 +48,7 @@ ASSIGNABLE_TAGS = {
     "rect",
     "text",
 }
-TEXT_OVERLAY_TAGS = {"circle", "ellipse", "rect"}
+TEXT_OVERLAY_TAGS = {"circle", "ellipse", "path", "polygon", "rect"}
 
 
 class FloorplanError(ValueError):
@@ -186,7 +186,17 @@ def _add_glow_gradient(
     ET.SubElement(
         gradient,
         f"{{{SVG_NAMESPACE}}}stop",
-        {"offset": "0%", "stop-color": color, "stop-opacity": "0.8"},
+        {"offset": "0%", "stop-color": color, "stop-opacity": "1"},
+    )
+    ET.SubElement(
+        gradient,
+        f"{{{SVG_NAMESPACE}}}stop",
+        {"offset": "60%", "stop-color": color, "stop-opacity": "0.9"},
+    )
+    ET.SubElement(
+        gradient,
+        f"{{{SVG_NAMESPACE}}}stop",
+        {"offset": "85%", "stop-color": color, "stop-opacity": "0.45"},
     )
     ET.SubElement(
         gradient,
@@ -212,6 +222,114 @@ def _set_text_lines(element: ET.Element, lines: tuple[str, ...]) -> None:
             attributes["x"] = x
         span = ET.SubElement(element, f"{{{SVG_NAMESPACE}}}tspan", attributes)
         span.text = line
+
+
+def _path_vertices(data: str) -> tuple[tuple[float, float], ...]:
+    """Return vertices from a straight-line SVG path."""
+    tokens = re.findall(
+        r"[A-Za-z]|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?",
+        data,
+    )
+    points: list[tuple[float, float]] = []
+    index = 0
+    command: str | None = None
+    x = y = start_x = start_y = 0.0
+    while index < len(tokens):
+        if tokens[index].isalpha():
+            command = tokens[index]
+            index += 1
+            if command in {"Z", "z"}:
+                x, y = start_x, start_y
+                command = None
+                continue
+            if command not in {"M", "m", "L", "l", "H", "h", "V", "v"}:
+                raise FloorplanError(
+                    "Text placement supports straight-line SVG paths only"
+                )
+        if command is None:
+            raise FloorplanError("Invalid SVG path for text placement")
+        relative = command.islower()
+        upper_command = command.upper()
+        if upper_command in {"M", "L"}:
+            if index + 1 >= len(tokens) or tokens[index].isalpha() or tokens[index + 1].isalpha():
+                raise FloorplanError("Invalid SVG path for text placement")
+            next_x, next_y = float(tokens[index]), float(tokens[index + 1])
+            index += 2
+            if relative:
+                next_x += x
+                next_y += y
+            x, y = next_x, next_y
+            if upper_command == "M":
+                start_x, start_y = x, y
+                command = "l" if relative else "L"
+        elif upper_command == "H":
+            if tokens[index].isalpha():
+                raise FloorplanError("Invalid SVG path for text placement")
+            x = float(tokens[index]) + (x if relative else 0)
+            index += 1
+        else:
+            if tokens[index].isalpha():
+                raise FloorplanError("Invalid SVG path for text placement")
+            y = float(tokens[index]) + (y if relative else 0)
+            index += 1
+        points.append((x, y))
+    if len(points) < 3:
+        raise FloorplanError("SVG path needs at least three points for text placement")
+    return tuple(points)
+
+
+def _polygon_center(
+    points: tuple[tuple[float, float], ...],
+) -> tuple[float, float]:
+    """Return an area centroid, falling back to the bounds center."""
+    twice_area = 0.0
+    centroid_x = centroid_y = 0.0
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        cross = x1 * y2 - x2 * y1
+        twice_area += cross
+        centroid_x += (x1 + x2) * cross
+        centroid_y += (y1 + y2) * cross
+    if abs(twice_area) > 1e-9:
+        return centroid_x / (3 * twice_area), centroid_y / (3 * twice_area)
+    return (
+        (min(point[0] for point in points) + max(point[0] for point in points)) / 2,
+        (min(point[1] for point in points) + max(point[1] for point in points)) / 2,
+    )
+
+
+def _polygon_width_at(
+    points: tuple[tuple[float, float], ...], y: float
+) -> float:
+    intersections = []
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        if (y1 <= y < y2) or (y2 <= y < y1):
+            intersections.append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+    return max(intersections) - min(intersections) if len(intersections) >= 2 else 0
+
+
+def _text_width_units(text: str) -> float:
+    """Estimate text width in font-size units for safe SVG scaling."""
+    narrow = set("ilI.,:;!|'`")
+    wide = set("MW@%&#")
+    uppercase = set("ABCDEFGHKNOPQRSTUVXYZ")
+    return sum(
+        1.0
+        if ord(character) > 0x2E80
+        else 0.3
+        if character in narrow
+        else 0.9
+        if character in wide
+        else 0.68
+        if character in uppercase
+        else 0.56
+        if character.isdigit()
+        else 0.32
+        if character.isspace()
+        else 0.54
+        for character in text
+    )
 
 
 def _normalize_physical_dimensions(root: ET.Element) -> None:
@@ -440,8 +558,9 @@ def _add_text_overlay(
     position: str,
     root: ET.Element,
 ) -> None:
-    """Place sensor readings within a basic SVG shape."""
+    """Place sensor readings centered and scaled within an SVG shape."""
     tag = element.tag.rsplit("}", 1)[-1]
+    polygon_points: tuple[tuple[float, float], ...] | None = None
     try:
         if tag == "rect":
             x = float(element.attrib.get("x", "0"))
@@ -459,6 +578,27 @@ def _add_text_overlay(
             x = float(element.attrib["cx"]) - rx
             y = float(element.attrib["cy"]) - ry
             width, height = rx * 2, ry * 2
+        elif tag == "polygon":
+            coordinates = [
+                float(value)
+                for value in re.findall(
+                    r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?",
+                    element.attrib["points"],
+                )
+            ]
+            if len(coordinates) < 6 or len(coordinates) % 2:
+                raise FloorplanError("Invalid SVG polygon for text placement")
+            polygon_points = tuple(zip(coordinates[::2], coordinates[1::2], strict=True))
+            x = min(point[0] for point in polygon_points)
+            y = min(point[1] for point in polygon_points)
+            width = max(point[0] for point in polygon_points) - x
+            height = max(point[1] for point in polygon_points) - y
+        elif tag == "path":
+            polygon_points = _path_vertices(element.attrib["d"])
+            x = min(point[0] for point in polygon_points)
+            y = min(point[1] for point in polygon_points)
+            width = max(point[0] for point in polygon_points) - x
+            height = max(point[1] for point in polygon_points) - y
         else:
             raise FloorplanError(
                 f"Cannot place display text inside SVG <{tag}> elements"
@@ -473,6 +613,11 @@ def _add_text_overlay(
         raise FloorplanError("SVG element bounds must be finite numbers")
     if width <= 0 or height <= 0:
         raise FloorplanError("SVG element bounds must have positive size")
+    center_x, center_y = (
+        _polygon_center(polygon_points)
+        if polygon_points
+        else (x + width / 2, y + height / 2)
+    )
 
     view_box = root.attrib.get("viewBox", "").replace(",", " ").split()
     if position == "auto":
@@ -491,11 +636,29 @@ def _add_text_overlay(
         )
         position = "top-left" if is_canvas_sized else "center"
 
-    font_size = min(width, height) * 0.14
+    inner_width = width * 0.84
+    if polygon_points:
+        inner_width = min(
+            _polygon_width_at(polygon_points, center_y - height * 0.12),
+            _polygon_width_at(polygon_points, center_y),
+            _polygon_width_at(polygon_points, center_y + height * 0.12),
+        ) * 0.84
+        if inner_width <= 0:
+            inner_width = width * 0.84
+    inner_height = height * 0.84
+    text_width = max(
+        (_text_width_units(line) for line in lines),
+        default=1.0,
+    )
+    font_size = min(
+        min(width, height) * 0.14,
+        inner_height / (1.2 * max(len(lines), 1)),
+        inner_width / text_width,
+    )
     text_anchor = "middle"
     baseline = "middle"
-    text_x = x + width / 2
-    text_y = y + height / 2
+    text_x = center_x
+    text_y = center_y
     if position != "center":
         margin = min(width, height) * 0.06
         if position.endswith("left"):
@@ -525,9 +688,19 @@ def _add_text_overlay(
             "fill": "#17212b",
         },
     )
+    _set_text_lines(text, lines)
+    max_line_width = inner_width
+    for span, line in zip(
+        (child for child in text if child.tag.endswith("tspan")),
+        lines,
+        strict=True,
+    ):
+        estimated_width = font_size * _text_width_units(line)
+        if estimated_width > max_line_width:
+            span.set("textLength", f"{max_line_width:g}")
+            span.set("lengthAdjust", "spacingAndGlyphs")
     if transform := element.attrib.get("transform"):
         text.set("transform", transform)
-    _set_text_lines(text, lines)
     try:
         index = list(parent).index(element)
     except ValueError as err:

@@ -84,11 +84,14 @@ def test_renders_glow_with_transparent_edges(tmp_path: Path) -> None:
     )
 
     assert b"data-ha-role=\"glow\"" in svg
-    assert b"stop-opacity=\"0.8\"" in svg
+    assert b"stop-opacity=\"1\"" in svg
+    assert b"stop-opacity=\"0.9\"" in svg
+    assert b"stop-opacity=\"0.45\"" in svg
     assert b"stop-opacity=\"0\"" in svg
     assert b"fill: url(#ha-temperature-glow-glow)" in svg
     image = Image.open(BytesIO(png)).convert("RGBA")
     assert image.getpixel((50, 50))[3] > 0
+    assert image.getpixel((75, 50))[3] >= 200
     assert image.getpixel((0, 50))[3] == 0
 
 
@@ -219,6 +222,9 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
     )
     assert overlay.attrib["x"] == "35"
     assert overlay.attrib["y"] == "40"
+    assert [
+        span.text for span in overlay if span.tag.endswith("tspan")
+    ] == ["22 °C", "45 %"]
 
 
 def test_auto_places_text_at_edge_of_canvas_sized_shape(tmp_path: Path) -> None:
@@ -249,6 +255,59 @@ def test_auto_places_text_at_edge_of_canvas_sized_shape(tmp_path: Path) -> None:
     assert overlay.attrib["text-anchor"] == "start"
     assert 0 < float(overlay.attrib["x"]) < 10
     assert 0 < float(overlay.attrib["y"]) < 20
+
+
+def test_centers_generated_text_on_path_area_centroid(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60">
+  <path id="attic" d="M 0 0 L 80 0 L 60 40 L 20 40 Z"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (ElementAssignment("attic", display_entity_ids=("sensor.temperature",)),),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.temperature": "22"},
+        {"sensor.temperature": "22 °C"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    overlay = next(element for element in root.iter() if element.tag.endswith("text"))
+
+    assert float(overlay.attrib["x"]) == pytest.approx(40)
+    assert float(overlay.attrib["y"]) == pytest.approx(17.7778, abs=0.001)
+
+
+def test_scales_generated_text_to_fit_shape(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40">
+  <rect id="room" x="10" y="10" width="30" height="20"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (ElementAssignment("room", display_entity_ids=("sensor.temperature",)),),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.temperature": "22"},
+        {
+            "sensor.temperature": (
+                "A very long sensor reading that should scale down"
+            )
+        },
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    overlay = next(element for element in root.iter() if element.tag.endswith("text"))
+    font_size = float(overlay.attrib["font-size"])
+
+    assert font_size < 20 * 0.14
+    assert font_size * 1.2 <= 20 * 0.84
 
 
 def test_configured_svg_reloads_sensor_choices_without_config_flow(
