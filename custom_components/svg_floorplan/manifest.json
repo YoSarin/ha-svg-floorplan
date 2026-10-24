@@ -1,0 +1,15 @@
+{
+  "domain": "svg_floorplan",
+  "name": "SVG Floorplan Image",
+  "codeowners": [
+    "@YoSarin"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/YoSarin/ha-svg-floorplan",
+  "integration_type": "helper",
+  "iot_class": "local_push",
+  "requirements": [
+    "resvg-py==0.5.0"
+  ],
+  "version": "0.1.0"
+}

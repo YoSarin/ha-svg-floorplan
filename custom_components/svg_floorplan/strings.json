@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add an SVG floor plan",
+        "description": "Enter the path to an SVG file under the Home Assistant configuration directory.",
+        "data": {
+          "svg_path": "Relative SVG path (for example floorplans/house.svg)"
+        }
+      }
+    },
+    "error": {
+      "invalid_svg": "The file could not be read as a valid floor plan. Check its path and SVG metadata."
+    },
+    "abort": {
+      "already_configured": "This SVG file is already configured."
+    }
+  }
+}
