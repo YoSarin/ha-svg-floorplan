@@ -115,3 +115,16 @@ def test_custom_integration_includes_english_translations() -> None:
     )
 
     assert translation == source
+
+
+def test_manifest_classifies_floorplan_as_service() -> None:
+    manifest_path = (
+        Path(__file__).parents[1]
+        / "custom_components"
+        / "svg_floorplan"
+        / "manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["integration_type"] == "service"
+    assert manifest["iot_class"] == "calculated"
