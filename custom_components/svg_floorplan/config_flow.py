@@ -24,6 +24,14 @@ _COLOR_MODES = [
     {"label": "Solid temperature color", "value": "fill"},
     {"label": "Fade to transparent", "value": "fade"},
 ]
+_DISPLAY_POSITIONS = [
+    {"label": "Automatic (center rooms, edge of floor-plan backdrop)", "value": "auto"},
+    {"label": "Center", "value": "center"},
+    {"label": "Top left", "value": "top-left"},
+    {"label": "Top right", "value": "top-right"},
+    {"label": "Bottom left", "value": "bottom-left"},
+    {"label": "Bottom right", "value": "bottom-right"},
+]
 
 
 def _create_configured_copy(
@@ -98,6 +106,8 @@ def _error_key(error: FloorplanError) -> str:
         return "unsupported_display_entity"
     if "Color mode must be" in message:
         return "invalid_color_mode"
+    if "Unsupported text position" in message:
+        return "invalid_display_position"
     if "Choose fill or fade" in message:
         return "color_mode_required"
     if "Choose a sensor to drive" in message:
@@ -180,6 +190,9 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         "element_id": element.element_id,
                         "display_entity_ids": list(display_entity_ids),
+                        "display_position": user_input.get(
+                            "display_position", "auto"
+                        ),
                         "color_entity_id": color_entity_id,
                         "color_mode": color_mode,
                     }
@@ -252,6 +265,15 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     domain=["sensor", "input_number"], multiple=True
                 )
             )
+            if element.tag != "text":
+                fields[vol.Optional("display_position", default="auto")] = (
+                    selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_DISPLAY_POSITIONS,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    )
+                )
         fields.update({
             vol.Optional("color_entity"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["sensor", "input_number"])
@@ -282,6 +304,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ElementAssignment(
                 element_id=assignment["element_id"],
                 display_entity_ids=tuple(assignment["display_entity_ids"]),
+                display_position=assignment["display_position"],
                 color_entity_id=assignment["color_entity_id"],
                 color_mode=assignment["color_mode"],
             )

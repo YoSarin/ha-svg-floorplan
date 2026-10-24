@@ -78,6 +78,7 @@ class ElementAssignment:
     entity_id: str | None = None
     role: str | None = None
     display_entity_ids: tuple[str, ...] = ()
+    display_position: str = "auto"
     color_entity_id: str | None = None
     color_mode: str = "none"
 
@@ -374,6 +375,17 @@ def _bindings(
                 "Display entities must be sensors or input_number entities"
             )
         if assignment.display_entity_ids:
+            if assignment.display_position not in {
+                "auto",
+                "center",
+                "top-left",
+                "top-right",
+                "bottom-left",
+                "bottom-right",
+            }:
+                raise FloorplanError(
+                    f"Unsupported text position {assignment.display_position!r}"
+                )
             display_entities_by_element[assignment.element_id] = (
                 assignment.display_entity_ids
             )
@@ -419,8 +431,10 @@ def _add_text_overlay(
     element: ET.Element,
     parent: ET.Element,
     lines: tuple[str, ...],
+    position: str,
+    root: ET.Element,
 ) -> None:
-    """Place selected sensor readings in the center of a basic SVG shape."""
+    """Place sensor readings within a basic SVG shape."""
     tag = element.tag.rsplit("}", 1)[-1]
     try:
         if tag == "rect":
@@ -454,15 +468,54 @@ def _add_text_overlay(
     if width <= 0 or height <= 0:
         raise FloorplanError("SVG element bounds must have positive size")
 
+    view_box = root.attrib.get("viewBox", "").replace(",", " ").split()
+    if position == "auto":
+        if len(view_box) == 4:
+            try:
+                view_width, view_height = map(float, view_box[2:])
+            except ValueError:
+                view_width = view_height = 0
+        else:
+            view_width = view_height = 0
+        is_canvas_sized = (
+            view_width > 0
+            and view_height > 0
+            and width >= view_width * 0.75
+            and height >= view_height * 0.75
+        )
+        position = "top-left" if is_canvas_sized else "center"
+
+    font_size = min(width, height) * 0.14
+    text_anchor = "middle"
+    baseline = "middle"
+    text_x = x + width / 2
+    text_y = y + height / 2
+    if position != "center":
+        margin = min(width, height) * 0.06
+        if position.endswith("left"):
+            text_x = x + margin
+            text_anchor = "start"
+        elif position.endswith("right"):
+            text_x = x + width - margin
+            text_anchor = "end"
+        if position.startswith("top"):
+            text_y = y + margin + font_size
+            baseline = "auto"
+        elif position.startswith("bottom"):
+            text_y = y + height - margin
+            baseline = "auto"
+        else:
+            raise FloorplanError(f"Unsupported text position {position!r}")
+
     text = ET.Element(
         f"{{{SVG_NAMESPACE}}}text",
         {
-            "x": f"{x + width / 2:g}",
-            "y": f"{y + height / 2:g}",
-            "text-anchor": "middle",
-            "dominant-baseline": "middle",
+            "x": f"{text_x:g}",
+            "y": f"{text_y:g}",
+            "text-anchor": text_anchor,
+            "dominant-baseline": baseline,
             "font-family": "sans-serif",
-            "font-size": f"{min(width, height) * 0.14:g}",
+            "font-size": f"{font_size:g}",
             "fill": "#17212b",
         },
     )
@@ -491,11 +544,15 @@ def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
         )
         color_entity = element.attrib.get("data-ha-color-entity")
         color_mode = element.attrib.get("data-ha-color-mode", "none")
+        display_position = element.attrib.get(
+            "data-ha-display-position", "auto"
+        )
         if display_entities or color_entity or color_mode != "none":
             assignments.append(
                 ElementAssignment(
                     element_id=element_id,
                     display_entity_ids=display_entities,
+                    display_position=display_position,
                     color_entity_id=color_entity,
                     color_mode=color_mode,
                 )
@@ -540,6 +597,11 @@ class FloorplanRenderer:
         self.bindings, self.display_entities_by_element = _bindings(
             root, self.assignments
         )
+        self.display_position_by_element = {
+            assignment.element_id: assignment.display_position
+            for assignment in self.assignments
+            if assignment.display_entity_ids
+        }
         assignable_elements: list[AssignableElement] = []
 
         def find_assignable(
@@ -584,6 +646,9 @@ class FloorplanRenderer:
                 element.set(
                     "data-ha-display-entities",
                     ",".join(assignment.display_entity_ids),
+                )
+                element.set(
+                    "data-ha-display-position", assignment.display_position
                 )
             if assignment.color_entity_id is not None:
                 element.set("data-ha-color-entity", assignment.color_entity_id)
@@ -669,7 +734,13 @@ class FloorplanRenderer:
                     raise FloorplanError(
                         f"Could not position sensor text for SVG element {element_id!r}"
                     )
-                _add_text_overlay(element, parent, lines)
+                _add_text_overlay(
+                    element,
+                    parent,
+                    lines,
+                    self.display_position_by_element.get(element_id, "auto"),
+                    root,
+                )
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:

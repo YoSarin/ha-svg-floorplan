@@ -10,9 +10,10 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nSelect one or more sensors to display on this element. Existing text is updated; for rectangles, circles, and ellipses, readings are added as centered text, one value per line, with friendly names and units.\n\nChoose a separate sensor to control this element's temperature color. Choose solid color or fade to transparent. Displayed sensors and the color sensor can be different.\n\nSelect “Skip this element” to leave it unchanged. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nSelect one or more sensors to display on this element. Existing text is updated; for rectangles, circles, and ellipses, readings are added as text, one value per line, with friendly names and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge. Use the position menu to override this.\n\nChoose a separate sensor to control this element's temperature color. Choose solid color or fade to transparent. Displayed sensors and the color sensor can be different.\n\nSelect “Skip this element” to leave it unchanged. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
         "data": {
           "display_entities": "Sensors to display on this element",
+          "display_position": "Where to place the readings",
           "color_entity": "Use this sensor to choose the color",
           "color_mode": "Color or fade this element",
           "skip": "Skip this element (leave it unchanged)"
@@ -42,7 +43,8 @@
       "configure_or_skip_required": "Choose displayed sensors or configure a color sensor, or turn on “Skip this element”.",
       "display_sensors_need_supported_element": "Sensor readings can be displayed on text, rectangle, circle, or ellipse elements.",
       "unsupported_display_entity": "Displayed entities must be sensors or input numbers.",
-      "invalid_color_mode": "Choose no color, solid color, or fade to transparent."
+      "invalid_color_mode": "Choose no color, solid color, or fade to transparent.",
+      "invalid_display_position": "Choose an automatic, centered, or corner position for the displayed readings."
     },
     "abort": {
       "already_configured": "This SVG file is already configured."

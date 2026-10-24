@@ -174,7 +174,7 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
 ) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect id="room" width="100" height="100"/>
+  <rect id="room" x="20" y="20" width="30" height="40"/>
 </svg>
 """
     svg_path = tmp_path / "floorplan.svg"
@@ -216,8 +216,38 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
         for element in root.iter()
         if element.tag.endswith("text")
     )
-    assert overlay.attrib["x"] == "50"
-    assert overlay.attrib["y"] == "50"
+    assert overlay.attrib["x"] == "35"
+    assert overlay.attrib["y"] == "40"
+
+
+def test_auto_places_text_at_edge_of_canvas_sized_shape(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80">
+  <rect id="backdrop" width="100" height="80"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (
+            ElementAssignment(
+                "backdrop",
+                display_entity_ids=("sensor.outdoor_temperature",),
+            ),
+        ),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.outdoor_temperature": "12"},
+        {"sensor.outdoor_temperature": "Outside: 12 °C"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    overlay = next(element for element in root.iter() if element.tag.endswith("text"))
+
+    assert overlay.attrib["text-anchor"] == "start"
+    assert 0 < float(overlay.attrib["x"]) < 10
+    assert 0 < float(overlay.attrib["y"]) < 20
 
 
 def test_configured_svg_reloads_sensor_choices_without_config_flow(
@@ -234,6 +264,7 @@ def test_configured_svg_reloads_sensor_choices_without_config_flow(
         ElementAssignment(
             "room",
             display_entity_ids=("sensor.temperature", "sensor.humidity"),
+            display_position="top-right",
             color_entity_id="sensor.temperature",
             color_mode="fade",
         ),
@@ -258,6 +289,7 @@ def test_configured_svg_reloads_sensor_choices_without_config_flow(
     }
     assert b"data-ha-color-mode=\"fade\"" in svg
     assert b"data-ha-display-entities=\"sensor.temperature,sensor.humidity\"" in svg
+    assert b"data-ha-display-position=\"top-right\"" in svg
     assert b"Temperature: 22 \xc2\xb0C" in svg
     assert b"Humidity: 45 %" in svg
 

@@ -112,6 +112,7 @@ async def async_setup_entry(
                 entity_id=assignment.get("entity_id"),
                 role=assignment.get("role"),
                 display_entity_ids=tuple(assignment.get("display_entity_ids", ())),
+                display_position=assignment.get("display_position", "auto"),
                 color_entity_id=assignment.get("color_entity_id"),
                 color_mode=assignment.get("color_mode", "none"),
             )

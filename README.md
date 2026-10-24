@@ -32,7 +32,9 @@ no system fonts installed.
 4. If the SVG has no `data-ha-entity` metadata, the setup flow walks through
    its identified shapes and text elements by their SVG editor labels. Choose
    one or more sensors to display on text, rectangles, circles, or ellipses;
-   shape readings are added as centered text. Independently, choose a color
+   shape readings are added as text. Automatic placement centers readings in
+   room shapes and places readings for floor-plan-sized backdrops near their
+   top-left edge; you can override the position. Independently, choose a color
    sensor and solid or fading color, or explicitly skip the element.
    Setup saves a configured copy beside the original (for example
    `house.configured.svg`) with reusable sensor metadata embedded in the SVG.
@@ -76,8 +78,10 @@ use the defaults below. Colors must be six-digit hex colors. The integration
 updates all marked area and value elements within a room group.
 Elements without metadata can instead be assigned during setup. Supported
 elements need an SVG `id`. Text elements, rectangles, circles, and ellipses can display multiple sensors;
-shape readings are added as centered text, one value per line with its Home
-Assistant friendly name and unit. The color sensor is selected independently.
+shape readings are added as text, one value per line with its Home Assistant
+friendly name and unit. Automatic placement uses the center for room-sized
+shapes and the top-left edge for floor-plan-sized backdrops. You can choose
+center or a corner manually. The color sensor is selected independently.
 The setup flow uses labels from
 SVG editors such as Inkscape to identify each element, falling back to its
 parent layer label and then its SVG ID.
