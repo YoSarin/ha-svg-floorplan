@@ -303,6 +303,14 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+            description_placeholders={
+                "element_name": element.label,
+                "element_id": element.element_id,
+                "position": (
+                    f"{self._assignment_index + 1} of "
+                    f"{len(self._pending_elements)}"
+                ),
+            },
         )
 
     async def async_step_assign(
