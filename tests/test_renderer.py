@@ -1,6 +1,7 @@
 """Tests for SVG floor-plan rendering."""
 
 import importlib
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -104,3 +105,13 @@ def test_rejects_duplicate_svg_ids(tmp_path: Path) -> None:
     )
     with pytest.raises(FloorplanError, match="IDs must be unique"):
         _renderer(tmp_path, duplicate)
+
+
+def test_custom_integration_includes_english_translations() -> None:
+    integration = Path(__file__).parents[1] / "custom_components" / "svg_floorplan"
+    source = json.loads((integration / "strings.json").read_text(encoding="utf-8"))
+    translation = json.loads(
+        (integration / "translations" / "en.json").read_text(encoding="utf-8")
+    )
+
+    assert translation == source
