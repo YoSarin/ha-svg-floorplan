@@ -84,7 +84,7 @@ class ElementAssignment:
     color_entity_id: str | None = None
     color_mode: str = "none"
     neutralize: bool = False
-    device_id: str | None = None
+    device_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -551,7 +551,16 @@ def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
         color_entity = element.attrib.get("data-ha-color-entity")
         color_mode = element.attrib.get("data-ha-color-mode", "none")
         neutralize = element.attrib.get("data-ha-neutral") == "true"
-        device_id = element.attrib.get("data-ha-device-id")
+        device_ids = tuple(
+            device_id
+            for device_id in element.attrib.get(
+                "data-ha-device-ids", ""
+            ).split(",")
+            if device_id
+        )
+        legacy_device_id = element.attrib.get("data-ha-device-id")
+        if not device_ids and legacy_device_id:
+            device_ids = (legacy_device_id,)
         display_position = element.attrib.get(
             "data-ha-display-position", "auto"
         )
@@ -560,7 +569,7 @@ def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
             or color_entity
             or color_mode != "none"
             or neutralize
-            or device_id
+            or device_ids
         ):
             assignments.append(
                 ElementAssignment(
@@ -570,7 +579,7 @@ def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
                     color_entity_id=color_entity,
                     color_mode=color_mode,
                     neutralize=neutralize,
-                    device_id=device_id,
+                    device_ids=device_ids,
                 )
             )
     return tuple(assignments)
@@ -670,6 +679,7 @@ class FloorplanRenderer:
                 "data-ha-color-mode",
                 "data-ha-neutral",
                 "data-ha-device-id",
+                "data-ha-device-ids",
             ):
                 element.attrib.pop(attribute, None)
             if assignment.display_entity_ids:
@@ -687,8 +697,8 @@ class FloorplanRenderer:
                 element.set("data-ha-neutral", "true")
             else:
                 element.attrib.pop("data-ha-neutral", None)
-            if assignment.device_id:
-                element.set("data-ha-device-id", assignment.device_id)
+            if assignment.device_ids:
+                element.set("data-ha-device-ids", ",".join(assignment.device_ids))
         return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
     @property

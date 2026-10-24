@@ -336,8 +336,8 @@ def test_device_selection_persists_per_svg_element(tmp_path: Path) -> None:
     source_path = tmp_path / "floorplan.svg"
     source_path.write_text(source, encoding="utf-8")
     assignments = (
-        ElementAssignment("room_a", device_id="device_a"),
-        ElementAssignment("room_b", device_id="device_b", neutralize=True),
+        ElementAssignment("room_a", device_ids=("device_a", "device_b")),
+        ElementAssignment("room_b", device_ids=("device_c",), neutralize=True),
     )
 
     configured_path = tmp_path / "floorplan.configured.svg"
@@ -347,9 +347,9 @@ def test_device_selection_persists_per_svg_element(tmp_path: Path) -> None:
     renderer = FloorplanRenderer(configured_path)
 
     assert {
-        assignment.element_id: assignment.device_id
+        assignment.element_id: assignment.device_ids
         for assignment in renderer.assignments
-    } == {"room_a": "device_a", "room_b": "device_b"}
+    } == {"room_a": ("device_a", "device_b"), "room_b": ("device_c",)}
 
 
 def test_renders_svg_with_physical_dimensions(tmp_path: Path) -> None:
