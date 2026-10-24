@@ -21,10 +21,9 @@
       },
       "device": {
         "title": "Choose devices for this element",
-        "description": "Element {position}: {element_name} (SVG ID: {element_id}). Choose one or more Home Assistant devices that provide entities for this element. Their sensor and input number entities will be offered on the next step. Alternatively, skip this element here to use neutral gray without selecting devices.",
+        "description": "Element {position}: {element_name} (SVG ID: {element_id}). Choose one or more Home Assistant devices that provide entities for this element. Their sensor and input number entities will be offered on the next step. Leave the device selection empty to give this element a neutral gray color.",
         "data": {
-          "device_ids": "Devices",
-          "skip": "Skip this element (use neutral gray)"
+          "device_ids": "Devices"
         }
       }
     },
@@ -53,8 +52,7 @@
       "unsupported_display_entity": "Displayed entities must be sensors or input numbers.",
       "invalid_color_mode": "Choose no color, solid color, or fade to transparent.",
       "invalid_display_position": "Choose an automatic, centered, or corner position for the displayed readings.",
-      "device_has_no_sensors": "The selected devices have no enabled sensor or input number entities to assign. Choose other devices.",
-      "device_required": "Choose at least one device, or skip this element to use neutral gray."
+      "device_has_no_sensors": "The selected devices have no enabled sensor or input number entities to assign. Choose other devices."
     },
     "abort": {
       "already_configured": "This SVG file is already configured.",

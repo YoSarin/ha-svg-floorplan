@@ -244,43 +244,40 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Choose devices whose entities are available for this element."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            if user_input.get("skip", False):
+            device_ids = tuple(user_input.get("device_ids", ()))
+            if not device_ids:
                 self._selected_device_ids = ()
                 self._device_entities = []
                 return await self.async_step_assign({"skip": True})
 
-            device_ids = tuple(user_input.get("device_ids", ()))
-            if not device_ids:
-                errors["base"] = "device_required"
+            entity_registry = er.async_get(self.hass)
+            entity_options: dict[str, dict[str, str]] = {}
+            for device_id in device_ids:
+                entries = er.async_entries_for_device(entity_registry, device_id)
+                for entry in entries:
+                    if entry.entity_id.split(".", 1)[0] not in {
+                        "sensor",
+                        "input_number",
+                    }:
+                        continue
+                    if entry.disabled_by is not None:
+                        continue
+                    state = self.hass.states.get(entry.entity_id)
+                    name = (
+                        state.attributes.get("friendly_name")
+                        if state is not None
+                        else None
+                    ) or entry.name or entry.original_name or entry.entity_id
+                    entity_options[entry.entity_id] = {
+                        "label": f"{name} ({entry.entity_id})",
+                        "value": entry.entity_id,
+                    }
+            self._device_entities = list(entity_options.values())
+            if not self._device_entities:
+                errors["base"] = "device_has_no_sensors"
             else:
-                entity_registry = er.async_get(self.hass)
-                entity_options: dict[str, dict[str, str]] = {}
-                for device_id in device_ids:
-                    entries = er.async_entries_for_device(entity_registry, device_id)
-                    for entry in entries:
-                        if entry.entity_id.split(".", 1)[0] not in {
-                            "sensor",
-                            "input_number",
-                        }:
-                            continue
-                        if entry.disabled_by is not None:
-                            continue
-                        state = self.hass.states.get(entry.entity_id)
-                        name = (
-                            state.attributes.get("friendly_name")
-                            if state is not None
-                            else None
-                        ) or entry.name or entry.original_name or entry.entity_id
-                        entity_options[entry.entity_id] = {
-                            "label": f"{name} ({entry.entity_id})",
-                            "value": entry.entity_id,
-                        }
-                self._device_entities = list(entity_options.values())
-                if not self._device_entities:
-                    errors["base"] = "device_has_no_sensors"
-                else:
-                    self._selected_device_ids = device_ids
-                    return await self.async_step_assign()
+                self._selected_device_ids = device_ids
+                return await self.async_step_assign()
 
         element = self._pending_elements[self._assignment_index]
         self.context["title_placeholders"] = {
@@ -308,7 +305,6 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             ]
                         )
                     ),
-                    vol.Optional("skip", default=False): bool,
                 }
             ),
             errors=errors,

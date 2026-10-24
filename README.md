@@ -124,7 +124,8 @@ For each element, setup lets you select one or more devices and then choose
 display and color entities from the selected devices. All eligible entities
 are selected for display by default; a temperature entity is selected for color
 when available. Numeric color-entity states use the legacy color scale above.
-Elements can be skipped at device selection or assignment to use neutral gray.
+Leave the device selection empty, or skip an element during assignment, to use
+neutral gray.
 The flow uses labels from SVG editors such as Inkscape, falling back to the
 parent layer label and then the SVG ID.
 
