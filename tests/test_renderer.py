@@ -3,10 +3,12 @@
 import importlib
 import json
 import sys
+from io import BytesIO
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+from PIL import Image, ImageChops
 
 # Load the pure renderer without importing Home Assistant integration modules.
 _package_name = "custom_components.svg_floorplan"
@@ -46,6 +48,47 @@ def test_renders_value_and_interpolated_color(tmp_path: Path) -> None:
     assert b"22 \xc2\xb0C" in svg
     assert b"#22C55E" in svg
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_renders_text_in_png(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60">
+  <rect width="120" height="60" fill="white"/>
+  <g data-ha-entity="sensor.room_temperature">
+    <text id="temperature" data-ha-role="value" x="60" y="40"
+          text-anchor="middle" font-family="sans-serif" font-size="24"
+          fill="black">—</text>
+  </g>
+</svg>
+"""
+    _, png = _renderer(tmp_path, source).render({"sensor.room_temperature": "22"})
+
+    image = Image.open(BytesIO(png)).convert("RGB")
+    text_region = image.crop((20, 10, 100, 50))
+    assert ImageChops.difference(
+        text_region, Image.new("RGB", text_region.size, "white")
+    ).getbbox()
+
+
+def test_renders_glow_with_transparent_edges(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g data-ha-entity="sensor.room_temperature">
+    <rect id="glow" data-ha-role="glow" width="100" height="100"/>
+  </g>
+</svg>
+"""
+    svg, png = _renderer(tmp_path, source).render(
+        {"sensor.room_temperature": "22"}
+    )
+
+    assert b"data-ha-role=\"glow\"" in svg
+    assert b"stop-opacity=\"0.8\"" in svg
+    assert b"stop-opacity=\"0\"" in svg
+    assert b"fill: url(#ha-temperature-glow-glow)" in svg
+    image = Image.open(BytesIO(png)).convert("RGBA")
+    assert image.getpixel((50, 50))[3] > 0
+    assert image.getpixel((0, 50))[3] == 0
 
 
 def test_uses_unavailable_label_and_neutral_color(tmp_path: Path) -> None:

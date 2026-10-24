@@ -15,3 +15,7 @@ UNAVAILABLE_COLOR: Final = "#808080"
 DEFAULT_UNIT: Final = "°C"
 
 MAX_SVG_BYTES: Final = 2_000_000
+FONT_FILES: Final = (
+    "DejaVuSans.ttf",
+    "DejaVuSans-Bold.ttf",
+)

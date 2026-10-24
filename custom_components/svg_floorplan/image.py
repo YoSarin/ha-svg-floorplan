@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from homeassistant.components.image import ImageEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from . import SvgFloorplanConfigEntry, update_signal
@@ -59,7 +59,9 @@ class FloorplanImage(ImageEntity):
             )
         )
 
+    @callback
     def _handle_image_update(self) -> None:
+        """Refresh the entity state on Home Assistant's event loop."""
         self.async_write_ha_state()
 
     async def async_image(self) -> bytes:

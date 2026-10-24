@@ -18,8 +18,9 @@ For local testing, copy `custom_components/svg_floorplan` into
 `<HA config>/custom_components/svg_floorplan` and restart Home Assistant.
 
 The integration uses `resvg-py` to rasterize PNG images. Home Assistant installs
-the pinned Python dependency from the integration manifest. The package
-provides wheels for common Linux architectures, including x86_64 and ARM.
+the pinned Python dependency from the integration manifest. DejaVu Sans fonts
+are bundled so SVG text also renders in minimal Home Assistant containers with
+no system fonts installed.
 
 ## Configure
 
@@ -37,8 +38,10 @@ image entity with the Home Assistant Companion app's Android Picture widget.
 
 Mark each room with a `<g>` element. Set `data-ha-entity` to the entity whose
 state supplies the displayed value. Inside that group, mark the shape to color
-with `data-ha-role="area"` and the text element to update with
-`data-ha-role="value"`.
+with `data-ha-role="area"`, an optional fading temperature glow with
+`data-ha-role="glow"`, and the text element to update with
+`data-ha-role="value"`. Glow shapes use a radial gradient that fades from the
+temperature color in the center to transparent at the edges.
 
 ```xml
 <g
@@ -54,6 +57,8 @@ with `data-ha-role="area"` and the text element to update with
 >
   <rect id="living-room-area" data-ha-role="area"
         x="50" y="50" width="300" height="300"/>
+  <rect id="living-room-glow" data-ha-role="glow"
+        x="25" y="25" width="350" height="350"/>
   <text id="living-room-value" data-ha-role="value"
         x="200" y="200" text-anchor="middle">—</text>
 </g>

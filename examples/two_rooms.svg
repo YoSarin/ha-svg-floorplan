@@ -1,11 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 360">
-  <rect width="500" height="360" fill="#dce7ef"/>
   <text x="250" y="38" text-anchor="middle" font-family="sans-serif"
         font-size="20" fill="#253746">Outside</text>
 
   <g id="outside" data-ha-entity="sensor.teplomer_venku_temperature">
-    <rect id="outside-area" data-ha-role="area" x="30" y="60" width="440" height="260"
-          rx="12" fill="#dce7ef" stroke="#253746" stroke-width="4"/>
+    <rect id="outside-area" data-ha-role="glow" x="30" y="60" width="440" height="260"
+          rx="12" stroke="#253746" stroke-width="4"/>
     <text id="outside-temperature" data-ha-role="value" x="250" y="105" text-anchor="middle"
           font-family="sans-serif" font-size="28" fill="#17212b">—</text>
   </g>

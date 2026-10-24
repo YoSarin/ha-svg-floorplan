@@ -18,13 +18,14 @@ from .const import (
     DEFAULT_MAX,
     DEFAULT_MIN,
     DEFAULT_UNIT,
+    FONT_FILES,
     MAX_SVG_BYTES,
     UNAVAILABLE_COLOR,
 )
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-VALUE_ROLES = {"area", "value"}
+VALUE_ROLES = {"area", "glow", "value"}
 
 
 class FloorplanError(ValueError):
@@ -37,6 +38,7 @@ class RoomBinding:
 
     entity_id: str
     area_ids: tuple[str, ...]
+    glow_ids: tuple[str, ...]
     value_ids: tuple[str, ...]
     minimum: float
     comfort: float
@@ -103,6 +105,49 @@ def _set_fill(element: ET.Element, color: str) -> None:
     element.set("style", "; ".join(style_items))
 
 
+def _set_glow(element: ET.Element, gradient_id: str) -> None:
+    element.set("fill", f"url(#{gradient_id})")
+    style_items = []
+    for item in element.attrib.get("style", "").split(";"):
+        property_name, separator, value = item.partition(":")
+        if separator and property_name.strip().lower() != "fill" and value.strip():
+            style_items.append(f"{property_name.strip()}: {value.strip()}")
+    style_items.append(f"fill: url(#{gradient_id})")
+    element.set("style", "; ".join(style_items))
+
+
+def _add_glow_gradient(
+    root: ET.Element, gradient_id: str, color: str
+) -> None:
+    defs = next(
+        (child for child in root if child.tag == f"{{{SVG_NAMESPACE}}}defs"),
+        None,
+    )
+    if defs is None:
+        defs = ET.Element(f"{{{SVG_NAMESPACE}}}defs")
+        root.insert(0, defs)
+    gradient = ET.SubElement(
+        defs,
+        f"{{{SVG_NAMESPACE}}}radialGradient",
+        {
+            "id": gradient_id,
+            "cx": "50%",
+            "cy": "50%",
+            "r": "50%",
+        },
+    )
+    ET.SubElement(
+        gradient,
+        f"{{{SVG_NAMESPACE}}}stop",
+        {"offset": "0%", "stop-color": color, "stop-opacity": "0.8"},
+    )
+    ET.SubElement(
+        gradient,
+        f"{{{SVG_NAMESPACE}}}stop",
+        {"offset": "90%", "stop-color": color, "stop-opacity": "0"},
+    )
+
+
 def _set_text(element: ET.Element, text: str) -> None:
     for child in list(element):
         element.remove(child)
@@ -121,6 +166,7 @@ def _bindings(root: ET.Element) -> tuple[RoomBinding, ...]:
             )
 
         area_ids: list[str] = []
+        glow_ids: list[str] = []
         value_ids: list[str] = []
         for child in group.iter():
             if child is group:
@@ -135,10 +181,12 @@ def _bindings(root: ET.Element) -> tuple[RoomBinding, ...]:
                 )
             if role == "area":
                 area_ids.append(element_id)
+            elif role == "glow":
+                glow_ids.append(element_id)
             else:
                 value_ids.append(element_id)
 
-        if not area_ids and not value_ids:
+        if not area_ids and not glow_ids and not value_ids:
             raise FloorplanError(
                 f"Group for {entity_id!r} must contain an area or value element"
             )
@@ -161,6 +209,7 @@ def _bindings(root: ET.Element) -> tuple[RoomBinding, ...]:
             RoomBinding(
                 entity_id=entity_id,
                 area_ids=tuple(area_ids),
+                glow_ids=tuple(glow_ids),
                 value_ids=tuple(value_ids),
                 minimum=minimum,
                 comfort=comfort,
@@ -237,6 +286,7 @@ class FloorplanRenderer:
             for element in root.iter()
             if (element_id := _element_id(element)) is not None
         }
+        used_ids = set(elements_by_id)
 
         for binding in self.bindings:
             raw_state = states.get(binding.entity_id, "")
@@ -253,12 +303,37 @@ class FloorplanRenderer:
 
             for element_id in binding.area_ids:
                 _set_fill(elements_by_id[element_id], color)
+            for element_id in binding.glow_ids:
+                gradient_id = f"ha-temperature-glow-{element_id}"
+                suffix = 2
+                while gradient_id in used_ids:
+                    gradient_id = f"ha-temperature-glow-{element_id}-{suffix}"
+                    suffix += 1
+                used_ids.add(gradient_id)
+                _add_glow_gradient(root, gradient_id, color)
+                _set_glow(elements_by_id[element_id], gradient_id)
             for element_id in binding.value_ids:
                 _set_text(elements_by_id[element_id], display)
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:
-            png = resvg_py.svg_to_bytes(svg_string=svg.decode("utf-8"))
+            font_directory = Path(__file__).with_name("fonts")
+            font_files = [
+                str(font_directory / font_file)
+                for font_file in FONT_FILES
+                if (font_directory / font_file).is_file()
+            ]
+            if len(font_files) != len(FONT_FILES):
+                raise FloorplanError(
+                    f"Bundled fonts are missing from {font_directory}"
+                )
+            png = resvg_py.svg_to_bytes(
+                svg_string=svg.decode("utf-8"),
+                font_files=font_files,
+                sans_serif_family="DejaVu Sans",
+            )
+        except FloorplanError:
+            raise
         except Exception as err:
             raise FloorplanError(f"Could not rasterize SVG as PNG: {err}") from err
         return svg, png
