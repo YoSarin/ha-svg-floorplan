@@ -162,6 +162,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._pending_assignments: list[dict[str, Any]] = []
                     self._existing_assignments: dict[str, ElementAssignment] = {}
                     self._assignment_index = 0
+                    self._legacy_device_id = None
                     return await self.async_step_device()
 
         return self.async_show_form(
