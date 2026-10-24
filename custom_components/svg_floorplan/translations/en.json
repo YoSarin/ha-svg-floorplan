@@ -9,11 +9,12 @@
         }
       },
       "assign": {
-        "title": "Assign entities to SVG elements",
-        "description": "Element: {element_id} (<{tag}>). Select an entity and how it should be displayed, or leave the entity empty to skip this element. {details}",
+        "title": "Element {position}: {element_name}",
+        "description": "Choose what to do with this SVG element. Its SVG ID is {element_id} and its type is <{tag}>. Turn on “Skip this element” to leave it unchanged. {details}",
         "data": {
-          "entity_id": "Home Assistant entity",
-          "role": "Element behavior"
+          "entity_id": "Sensor or input number",
+          "skip": "Skip this element (leave it unchanged)",
+          "role": "How to use this element"
         }
       }
     },
@@ -33,7 +34,8 @@
       "duplicate_ids": "The SVG contains duplicate element IDs. Make each SVG ID unique.",
       "render_failed": "The SVG is valid, but Home Assistant could not render it as a PNG. Check the SVG features and bundled renderer logs.",
       "no_assignable_elements": "The SVG has no supported, identified shapes or text elements to assign. Add IDs to shapes or text in your SVG editor.",
-      "no_entity_assigned": "Assign at least one Home Assistant entity before continuing."
+      "no_entity_assigned": "Assign at least one Home Assistant entity before continuing.",
+      "entity_or_skip_required": "Select an entity, or turn on “Skip this element” to leave this SVG element unchanged."
     },
     "abort": {
       "already_configured": "This SVG file is already configured."

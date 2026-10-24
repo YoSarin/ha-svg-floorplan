@@ -131,6 +131,24 @@ def test_rejects_svg_without_entity_bindings(tmp_path: Path) -> None:
     ]
 
 
+def test_assignable_elements_use_svg_editor_labels(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">
+  <g inkscape:label="Rooms">
+    <rect id="room" inkscape:label="Living room"/>
+    <rect id="hall"/>
+  </g>
+</svg>
+"""
+    renderer = _renderer(tmp_path, source)
+
+    assert renderer.assignable_elements == (
+        _renderer_module.AssignableElement("room", "rect", "Living room"),
+        _renderer_module.AssignableElement("hall", "rect", "Rooms"),
+    )
+
+
 def test_assigns_entity_to_svg_element_without_metadata(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">

@@ -19,7 +19,11 @@ from .renderer import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-_ROLES = ["area", "value", "glow"]
+_ROLES = [
+    {"label": "Color this shape using the sensor temperature", "value": "area"},
+    {"label": "Display the sensor reading as text", "value": "value"},
+    {"label": "Add a temperature-colored fading glow", "value": "glow"},
+]
 
 
 def _error_key(error: FloorplanError) -> str:
@@ -112,9 +116,11 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Assign an entity and rendering role to each SVG element."""
         if user_input is not None:
-            entity_id = user_input.get("entity_id")
             element = self._pending_elements[self._assignment_index]
-            if entity_id:
+            entity_id = user_input.get("entity_id")
+            if not user_input.get("skip") and not entity_id:
+                return self._show_assignment_form("entity_or_skip_required")
+            if not user_input.get("skip") and entity_id:
                 self._pending_assignments.append(
                     ElementAssignment(
                         element_id=element.element_id,
@@ -169,6 +175,11 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         element = self._pending_elements[self._assignment_index]
         errors = {"base": error} if error else {}
+        position = f"{self._assignment_index + 1} of {len(self._pending_elements)}"
+        self.context["title_placeholders"] = {
+            "position": position,
+            "element_name": element.label,
+        }
         return self.async_show_form(
             step_id="assign",
             data_schema=vol.Schema(
@@ -178,6 +189,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             domain=["sensor", "input_number"]
                         )
                     ),
+                    vol.Optional("skip", default=False): bool,
                     vol.Optional("role", default=_default_role(element)): (
                         selector.SelectSelector(
                             selector.SelectSelectorConfig(
@@ -192,7 +204,9 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "element_id": element.element_id,
                 "tag": element.tag,
+                "element_name": element.label,
                 "details": details,
+                "position": position,
             },
         )
 

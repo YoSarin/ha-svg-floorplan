@@ -84,6 +84,7 @@ class AssignableElement:
 
     element_id: str
     tag: str
+    label: str
 
 
 def _element_id(element: ET.Element) -> str | None:
@@ -369,12 +370,31 @@ class FloorplanRenderer:
 
         self._source = source
         self.bindings = _bindings(root, assignments)
-        self.assignable_elements = tuple(
-            AssignableElement(element_id, element.tag.rsplit("}", 1)[-1])
-            for element in root.iter()
-            if (element_id := _element_id(element)) is not None
-            and element.tag.rsplit("}", 1)[-1] in ASSIGNABLE_TAGS
-        )
+        assignable_elements: list[AssignableElement] = []
+
+        def find_assignable(
+            element: ET.Element, inherited_label: str = ""
+        ) -> None:
+            label = next(
+                (
+                    value
+                    for key, value in element.attrib.items()
+                    if key.rsplit("}", 1)[-1] in {"label", "aria-label"}
+                    and value.strip()
+                ),
+                inherited_label,
+            )
+            element_id = _element_id(element)
+            tag = element.tag.rsplit("}", 1)[-1]
+            if element_id is not None and tag in ASSIGNABLE_TAGS:
+                assignable_elements.append(
+                    AssignableElement(element_id, tag, label or element_id)
+                )
+            for child in element:
+                find_assignable(child, label)
+
+        find_assignable(root)
+        self.assignable_elements = tuple(assignable_elements)
 
     @property
     def entity_ids(self) -> tuple[str, ...]:

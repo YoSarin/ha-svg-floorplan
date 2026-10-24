@@ -30,8 +30,9 @@ no system fonts installed.
 3. Enter the SVG path relative to the configuration directory:
    `floorplans/house.svg`.
 4. If the SVG has no `data-ha-entity` metadata, the setup flow walks through
-   its identified shapes and text elements so you can select an entity and
-   display role for each one. Elements can be skipped.
+   its identified shapes and text elements by their SVG editor labels. Choose
+   an entity and display role, or explicitly select **Skip this element** to
+   leave it unchanged.
 5. Restart or reload the integration after changing the source SVG.
 
 The integration creates two image entities: one SVG and one PNG. Use the PNG
@@ -72,7 +73,9 @@ use the defaults below. Colors must be six-digit hex colors. The integration
 updates all marked area and value elements within a room group.
 Elements without metadata can instead be assigned during setup. Supported
 elements need an SVG `id`; each assignment selects a sensor or input number and
-one of the `area`, `value`, or `glow` roles.
+one of the `area`, `value`, or `glow` roles. The setup flow uses labels from
+SVG editors such as Inkscape to identify each element, falling back to its
+parent layer label and then its SVG ID.
 
 | Attribute | Default | Meaning |
 | --- | --- | --- |
