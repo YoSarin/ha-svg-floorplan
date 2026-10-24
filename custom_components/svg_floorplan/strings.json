@@ -10,7 +10,7 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Choose what to do with this SVG element. Its SVG ID is {element_id} and its type is <{tag}>. Turn on “Skip this element” to leave it unchanged. {details}",
+        "description": "Choose what to do with this SVG element. Its SVG ID is {element_id} and its type is <{tag}>.\n\nArea: fill this shape with a color based on the selected sensor's temperature.\nValue: replace this text with the selected sensor's reading.\nGlow: add a soft temperature-colored glow that fades to transparent.\n\nTurn on “Skip this element” to leave it unchanged. {details}",
         "data": {
           "entity_id": "Sensor or input number",
           "skip": "Skip this element (leave it unchanged)",
