@@ -30,7 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 _COLOR_MODES = [
     {"label": "Do not color this element", "value": "none"},
     {"label": "Solid color", "value": "fill"},
-    {"label": "Fade to transparent", "value": "fade"},
+    {"label": "Fade at edges to neutral gray", "value": "fade"},
 ]
 _DISPLAY_POSITIONS = [
     {"label": "Automatic (center rooms, edge of floor-plan backdrop)", "value": "auto"},

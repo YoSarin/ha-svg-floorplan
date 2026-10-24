@@ -53,15 +53,16 @@ no system fonts installed.
    SVG editor labels or IDs. It does not require pre-authored Home Assistant
    metadata. For each element, choose one or more Home Assistant devices; their
    sensor and input number entities are then offered for assignment. Choose one
-   or more entities to display on text, rectangles, circles, or ellipses;
-   shape readings are added as text.
+   or more entities to display on text, rectangles, circles, ellipses,
+   polygons, or straight-edged paths; shape readings are added as text in
+   selection order.
    Automatic placement centers readings in room shapes and places readings
    for floor-plan-sized backdrops near their top-left edge; you can override
    the position. Independently, choose an entity to control the element's
    color, which defaults to solid color. A numeric entity state is mapped
-   through the color scale; fading to transparent and leaving the element
-   uncolored are also available. Skipping an element gives its shape a neutral
-   gray fill or its text a neutral gray foreground.
+   through the color scale; fading to neutral gray along the shape edges or
+   leaving the element uncolored are also available. Skipping an element gives
+   its shape a neutral gray fill or its text a neutral gray foreground.
    Setup saves a configured copy beside the original (for example
    `house.configured.svg`) with reusable sensor metadata embedded in the SVG.
 5. Restart or reload the integration after changing the source SVG.
@@ -71,8 +72,10 @@ Devices & services**, use its menu, and select **Reconfigure**. The current
 assignments are preselected where possible; reconfiguration writes an updated
 configured SVG and reloads the entry.
 
-The integration creates two image entities: one SVG and one PNG. Use the PNG
-image entity with the Home Assistant Companion app's Android Picture widget.
+The integration creates two image entities per floor plan. Each is named with
+the floor-plan title and format (for example, `House SVG` and `House PNG`), so
+multiple floor plans are distinguishable in entity pickers. Use the PNG image
+entity with the Home Assistant Companion app's Android Picture widget.
 
 ## Optional hand-authored SVG metadata
 
@@ -140,7 +143,7 @@ not need to be written by hand:
 | `data-ha-display-entities` | none | Comma-separated entity IDs displayed on the element |
 | `data-ha-display-position` | `auto` | Placement for readings: `auto`, `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right` |
 | `data-ha-color-entity` | none | Entity whose numeric state controls this element's color |
-| `data-ha-color-mode` | none | `fill` for solid color or `fade` for color fading to transparent |
+| `data-ha-color-mode` | none | `fill` for solid color or `fade` for sensor color fading to neutral gray along the element's edges |
 | `data-ha-neutral` | absent | `true` sets skipped elements to neutral gray |
 | `data-ha-device-ids` | none | Comma-separated Home Assistant device IDs selected for this element |
 | `data-ha-min` | `16` | Temperature at the cold-color endpoint |

@@ -281,6 +281,74 @@ def test_centers_generated_text_on_path_area_centroid(tmp_path: Path) -> None:
     assert float(overlay.attrib["y"]) == pytest.approx(17.7778, abs=0.001)
 
 
+def test_attic_text_renders_above_later_svg_layers(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 180">
+  <g transform="translate(200.7317,65.802834)">
+    <path id="attic"
+          d="m 4.5338674,-55.084905 107.2516826,37.328033 -1.55172,6.574732 h -211.03449 l -0.84603,-7.079894 z"/>
+  </g>
+  <rect x="0" y="0" width="400" height="180" fill="#000000"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (ElementAssignment("attic", display_entity_ids=("sensor.temperature",)),),
+    )
+
+    svg, png = renderer.render(
+        {"sensor.temperature": "22"},
+        {"sensor.temperature": "22 °C"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    overlay_layer = root[-1]
+    overlay = next(
+        element for element in overlay_layer.iter() if element.tag.endswith("text")
+    )
+    assert overlay.attrib["fill"] == "#FFFFFF"
+    assert overlay.attrib["stroke"] == "#17212b"
+    assert [span.text for span in overlay if span.tag.endswith("tspan")] == ["22 °C"]
+    image = Image.open(BytesIO(png)).convert("RGB")
+    assert max(image.crop((190, 30, 220, 50)).getchannel("R").get_flattened_data()) > 100
+
+
+def test_fade_mode_follows_shape_edges_and_uses_neutral_underlay(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect id="background" width="100" height="100" fill="#ffffff"/>
+  <path id="room" d="M 20 20 L 80 20 L 50 80 Z"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (
+            ElementAssignment(
+                "room",
+                color_entity_id="sensor.temperature",
+                color_mode="fade",
+            ),
+        ),
+    )
+
+    svg, png = renderer.render({"sensor.temperature": "22"})
+
+    assert b"ha-edge-fade-room" in svg
+    image = Image.open(BytesIO(png)).convert("RGB")
+    center = image.getpixel((50, 40))
+    near_edge = image.getpixel((50, 22))
+    outside = image.getpixel((50, 18))
+    assert center == (34, 197, 94)
+    assert near_edge != (255, 255, 255)
+    assert near_edge != center
+    assert outside == (255, 255, 255)
+
+
 def test_scales_generated_text_to_fit_shape(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40">

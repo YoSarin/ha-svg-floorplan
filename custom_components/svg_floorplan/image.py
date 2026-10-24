@@ -37,7 +37,7 @@ class FloorplanImage(ImageEntity):
         self._entry = entry
         self._image_format = image_format
         self._attr_unique_id = f"{entry.entry_id}_{image_format}"
-        self._attr_name = image_format.upper()
+        self._attr_name = f"{entry.title} {image_format.upper()}"
         self._attr_entity_registry_enabled_default = True
         self._attr_content_type = (
             "image/svg+xml" if image_format == "svg" else "image/png"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 import xml.etree.ElementTree as ET
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,6 +71,7 @@ class RoomBinding:
     comfort_color: str
     hot_color: str
     unit: str
+    edge_fade_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -203,6 +205,105 @@ def _add_glow_gradient(
         f"{{{SVG_NAMESPACE}}}stop",
         {"offset": "90%", "stop-color": color, "stop-opacity": "0"},
     )
+
+
+def _edge_fade_width(element: ET.Element, root: ET.Element) -> float:
+    """Estimate an inward edge-fade width from the element's geometry."""
+    tag = element.tag.rsplit("}", 1)[-1]
+    try:
+        if tag == "rect":
+            width = float(element.attrib["width"])
+            height = float(element.attrib["height"])
+        elif tag == "circle":
+            width = height = float(element.attrib["r"]) * 2
+        elif tag == "ellipse":
+            width = float(element.attrib["rx"]) * 2
+            height = float(element.attrib["ry"]) * 2
+        elif tag == "polygon":
+            coordinates = [
+                float(value)
+                for value in re.findall(
+                    r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?",
+                    element.attrib["points"],
+                )
+            ]
+            width = max(coordinates[::2]) - min(coordinates[::2])
+            height = max(coordinates[1::2]) - min(coordinates[1::2])
+        elif tag == "path":
+            points = _path_vertices(element.attrib["d"])
+            width = max(point[0] for point in points) - min(
+                point[0] for point in points
+            )
+            height = max(point[1] for point in points) - min(
+                point[1] for point in points
+            )
+        else:
+            width = height = 0
+    except (KeyError, ValueError, FloorplanError):
+        width = height = 0
+    if width > 0 and height > 0 and math.isfinite(width + height):
+        return min(width, height) * 0.2
+    view_box = root.attrib.get("viewBox", "").replace(",", " ").split()
+    if len(view_box) == 4:
+        try:
+            return min(map(float, view_box[2:])) * 0.02
+        except ValueError:
+            pass
+    return 1.0
+
+
+def _add_edge_fade_mask(
+    root: ET.Element, shape: ET.Element, mask_id: str, fade_width: float
+) -> None:
+    """Fade the colored copy inward along its actual shape boundary."""
+    defs = next(
+        (child for child in root if child.tag == f"{{{SVG_NAMESPACE}}}defs"),
+        None,
+    )
+    if defs is None:
+        defs = ET.Element(f"{{{SVG_NAMESPACE}}}defs")
+        root.insert(0, defs)
+    mask = ET.SubElement(
+        defs,
+        f"{{{SVG_NAMESPACE}}}mask",
+        {
+            "id": mask_id,
+            "maskUnits": "objectBoundingBox",
+            "maskContentUnits": "userSpaceOnUse",
+            "x": "-0.25",
+            "y": "-0.25",
+            "width": "1.5",
+            "height": "1.5",
+        },
+    )
+    base = deepcopy(shape)
+    for attribute in (
+        "id",
+        "transform",
+        "style",
+        "fill",
+        "stroke",
+        "stroke-width",
+        "stroke-opacity",
+        "fill-opacity",
+        "opacity",
+        "mask",
+        "filter",
+        "clip-path",
+    ):
+        base.attrib.pop(attribute, None)
+    base.set("fill", "white")
+    base.set("stroke", "none")
+    mask.append(base)
+    for index in range(1, 11):
+        edge = deepcopy(base)
+        edge.set("fill", "none")
+        edge.set("stroke", "black")
+        edge.set("stroke-width", f"{fade_width * index / 10:g}")
+        edge.set("stroke-opacity", "0.12")
+        edge.set("stroke-linejoin", "round")
+        edge.set("stroke-linecap", "round")
+        mask.append(edge)
 
 
 def _set_text(element: ET.Element, text: str) -> None:
@@ -534,7 +635,8 @@ def _bindings(
                 area_ids=(assignment.element_id,)
                 if assignment.color_mode == "fill"
                 else (),
-                glow_ids=(assignment.element_id,)
+                glow_ids=(),
+                edge_fade_ids=(assignment.element_id,)
                 if assignment.color_mode == "fade"
                 else (),
                 value_ids=(),
@@ -557,6 +659,7 @@ def _add_text_overlay(
     lines: tuple[str, ...],
     position: str,
     root: ET.Element,
+    transform_chain: tuple[str, ...],
 ) -> None:
     """Place sensor readings centered and scaled within an SVG shape."""
     tag = element.tag.rsplit("}", 1)[-1]
@@ -685,7 +788,11 @@ def _add_text_overlay(
             "dominant-baseline": baseline,
             "font-family": "sans-serif",
             "font-size": f"{font_size:g}",
-            "fill": "#17212b",
+            "fill": "#FFFFFF",
+            "stroke": "#17212b",
+            "stroke-width": f"{font_size * 0.12:g}",
+            "stroke-linejoin": "round",
+            "paint-order": "stroke",
         },
     )
     _set_text_lines(text, lines)
@@ -701,11 +808,13 @@ def _add_text_overlay(
             span.set("lengthAdjust", "spacingAndGlyphs")
     if transform := element.attrib.get("transform"):
         text.set("transform", transform)
-    try:
-        index = list(parent).index(element)
-    except ValueError as err:
-        raise FloorplanError("Could not position sensor text in the SVG") from err
-    parent.insert(index + 1, text)
+    for transform in transform_chain:
+        parent = ET.SubElement(
+            parent,
+            f"{{{SVG_NAMESPACE}}}g",
+            {"transform": transform},
+        )
+    parent.append(text)
 
 
 def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
@@ -907,6 +1016,7 @@ class FloorplanRenderer:
             if (element_id := _element_id(element)) is not None
         }
         used_ids = set(elements_by_id)
+        parents = {child: parent for parent in root.iter() for child in parent}
 
         for binding in self.bindings:
             raw_state = states.get(binding.entity_id, "")
@@ -923,6 +1033,32 @@ class FloorplanRenderer:
 
             for element_id in binding.area_ids:
                 _set_fill(elements_by_id[element_id], color)
+            for element_id in binding.edge_fade_ids:
+                element = elements_by_id[element_id]
+                parent = parents.get(element)
+                if parent is None:
+                    raise FloorplanError(
+                        f"Could not position color fade for SVG element {element_id!r}"
+                    )
+                colored_shape = deepcopy(element)
+                colored_shape.attrib.pop("id", None)
+                colored_shape.attrib.pop("mask", None)
+                _set_fill(element, NEUTRAL_COLOR)
+                _set_fill(colored_shape, color)
+                mask_id = f"ha-edge-fade-{element_id}"
+                suffix = 2
+                while mask_id in used_ids:
+                    mask_id = f"ha-edge-fade-{element_id}-{suffix}"
+                    suffix += 1
+                used_ids.add(mask_id)
+                _add_edge_fade_mask(
+                    root,
+                    colored_shape,
+                    mask_id,
+                    _edge_fade_width(element, root),
+                )
+                colored_shape.set("mask", f"url(#{mask_id})")
+                parent.insert(list(parent).index(element) + 1, colored_shape)
             for element_id in binding.glow_ids:
                 gradient_id = f"ha-temperature-glow-{element_id}"
                 suffix = 2
@@ -943,9 +1079,7 @@ class FloorplanRenderer:
                 _set_fill(element, NEUTRAL_COLOR)
 
         display_values = display_values or {}
-        parents = {
-            child: parent for parent in root.iter() for child in parent
-        }
+        text_overlays: list[tuple[ET.Element, tuple[str, ...], str]] = []
         for element_id, entity_ids in self.display_entities_by_element.items():
             lines = tuple(
                 display_values.get(entity_id, f"{entity_id}: {states.get(entity_id, '—')}")
@@ -955,17 +1089,30 @@ class FloorplanRenderer:
             if element.tag.rsplit("}", 1)[-1] == "text":
                 _set_text_lines(element, lines)
             else:
-                parent = parents.get(element)
-                if parent is None:
-                    raise FloorplanError(
-                        f"Could not position sensor text for SVG element {element_id!r}"
+                text_overlays.append(
+                    (
+                        element,
+                        lines,
+                        self.display_position_by_element.get(element_id, "auto"),
                     )
+                )
+
+        if text_overlays:
+            overlay_layer = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}g")
+            for element, lines, position in text_overlays:
+                transform_chain = []
+                ancestor = parents.get(element)
+                while ancestor is not None and ancestor is not root:
+                    if transform := ancestor.attrib.get("transform"):
+                        transform_chain.append(transform)
+                    ancestor = parents.get(ancestor)
                 _add_text_overlay(
                     element,
-                    parent,
+                    overlay_layer,
                     lines,
-                    self.display_position_by_element.get(element_id, "auto"),
+                    position,
                     root,
+                    tuple(reversed(transform_chain)),
                 )
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
