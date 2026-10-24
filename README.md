@@ -74,14 +74,17 @@ configured SVG and reloads the entry.
 The integration creates two image entities: one SVG and one PNG. Use the PNG
 image entity with the Home Assistant Companion app's Android Picture widget.
 
-## SVG metadata
+## Optional hand-authored SVG metadata
 
-Mark each room with a `<g>` element. Set `data-ha-entity` to the entity whose
-state supplies the displayed value. Inside that group, mark the shape to color
-with `data-ha-role="area"`, an optional fading temperature glow with
-`data-ha-role="glow"`, and the text element to update with
-`data-ha-role="value"`. Glow shapes use a radial gradient that fades from the
-temperature color in the center to transparent at the edges.
+The setup flow does not require Home Assistant metadata: it creates the
+per-element assignments described below. For advanced users, the integration
+also continues to support hand-authored, room-group metadata. In this legacy
+format, mark each room with a `<g>` element and set `data-ha-entity` to the
+entity whose numeric state supplies its color and displayed value. Within the
+group, use `data-ha-role="area"` for the colored shape, optional
+`data-ha-role="glow"` for a fading glow, and `data-ha-role="value"` for text
+that displays the value. Glow shapes fade from the entity color in the center
+to transparent at the edges.
 
 ```xml
 <g
@@ -104,30 +107,36 @@ temperature color in the center to transparent at the edges.
 </g>
 ```
 
-The metadata attributes are optional except `data-ha-entity`; omitted values
-use the defaults below. Colors must be six-digit hex colors. The integration
-updates all marked area and value elements within a room group.
-Elements without metadata can instead be assigned during setup. Supported
-elements need an SVG `id`. Text elements, rectangles, circles, and ellipses can
-display multiple entities; shape readings are added as text, one value and unit
-per line, without the entity name. Automatic placement uses the center for
-room-sized shapes and the top-left edge for floor-plan-sized backdrops. You can
-choose center or a corner manually. The color entity is selected independently.
-During setup, one or more devices are chosen for each element, and that
-element's display and color entity selectors are limited to sensor and input
-number entities registered to those devices. The setup flow uses labels from
-SVG editors such as Inkscape to identify each element, falling back to its
-parent layer label and then its SVG ID.
+The room metadata attributes are optional except `data-ha-entity`; omitted
+values use the defaults below. Colors must be six-digit hex colors. The
+integration updates all marked area and value elements within a room group.
 
-Assignments are saved on each configured element as SVG attributes:
-`data-ha-display-entities` contains comma-separated entity IDs, while
-`data-ha-color-entity` and `data-ha-color-mode` select the entity and either
-`fill` or `fade`. Skipped elements are marked with `data-ha-neutral="true"`.
-This means the generated configured SVG retains its behavior when reused or
-added to another Home Assistant installation.
+## Setup-generated SVG metadata
+
+During setup, assignable elements need an SVG `id`; useful editor labels are
+recommended so the flow can identify each element. Text elements, rectangles,
+circles, and ellipses can display multiple entities. Shape readings are added
+as text, one value and unit per line, without entity names. Automatic placement
+uses the center for room-sized shapes and the top-left edge for floor-plan-sized
+backdrops; you can choose a corner or center manually.
+
+For each element, setup lets you select one or more devices and then choose
+display and color entities from the selected devices. Numeric color-entity
+states use the legacy color scale above. The flow uses labels from SVG editors
+such as Inkscape, falling back to the parent layer label and then the SVG ID.
+
+Assignments are embedded in the configured SVG, so the file can be reused
+without repeating setup. The flow manages these attributes; they generally do
+not need to be written by hand:
 
 | Attribute | Default | Meaning |
 | --- | --- | --- |
+| `data-ha-display-entities` | none | Comma-separated entity IDs displayed on the element |
+| `data-ha-display-position` | `auto` | Placement for readings: `auto`, `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right` |
+| `data-ha-color-entity` | none | Entity whose numeric state controls this element's color |
+| `data-ha-color-mode` | none | `fill` for solid color or `fade` for color fading to transparent |
+| `data-ha-neutral` | absent | `true` sets skipped elements to neutral gray |
+| `data-ha-device-ids` | none | Comma-separated Home Assistant device IDs selected for this element |
 | `data-ha-min` | `16` | Temperature at the cold-color endpoint |
 | `data-ha-comfort` | `22` | Temperature at the comfort-color midpoint |
 | `data-ha-max` | `28` | Temperature at the hot-color endpoint |

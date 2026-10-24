@@ -20,7 +20,7 @@
         }
       },
       "device": {
-        "title": "Devices for {element_name} ({position})",
+        "title": "Choose devices for this element",
         "description": "Choose one or more Home Assistant devices for this SVG element. Their sensor and input number entities will be offered on the next step. You will choose devices separately for each element.",
         "data": {
           "device_ids": "Devices"
