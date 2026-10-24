@@ -197,8 +197,8 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
     svg, _ = renderer.render(
         {"sensor.temperature": "22", "sensor.humidity": "45"},
         {
-            "sensor.temperature": "Living temperature: 22 °C",
-            "sensor.humidity": "Living humidity: 45 %",
+            "sensor.temperature": "22 °C",
+            "sensor.humidity": "45 %",
         },
     )
 
@@ -207,8 +207,9 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
         "sensor.humidity",
     }
     assert b"#22C55E" in svg
-    assert b"Living temperature: 22 \xc2\xb0C" in svg
-    assert b"Living humidity: 45 %" in svg
+    assert b"22 \xc2\xb0C" in svg
+    assert b"45 %" in svg
+    assert b"Living" not in svg
     assert b":tspan" in svg
     root = _renderer_module.ET.fromstring(svg)
     overlay = next(
@@ -240,7 +241,7 @@ def test_auto_places_text_at_edge_of_canvas_sized_shape(tmp_path: Path) -> None:
 
     svg, _ = renderer.render(
         {"sensor.outdoor_temperature": "12"},
-        {"sensor.outdoor_temperature": "Outside: 12 °C"},
+        {"sensor.outdoor_temperature": "12 °C"},
     )
     root = _renderer_module.ET.fromstring(svg)
     overlay = next(element for element in root.iter() if element.tag.endswith("text"))
@@ -278,8 +279,8 @@ def test_configured_svg_reloads_sensor_choices_without_config_flow(
     svg, _ = renderer.render(
         {"sensor.temperature": "22", "sensor.humidity": "45"},
         {
-            "sensor.temperature": "Temperature: 22 °C",
-            "sensor.humidity": "Humidity: 45 %",
+            "sensor.temperature": "22 °C",
+            "sensor.humidity": "45 %",
         },
     )
 
@@ -290,8 +291,39 @@ def test_configured_svg_reloads_sensor_choices_without_config_flow(
     assert b"data-ha-color-mode=\"fade\"" in svg
     assert b"data-ha-display-entities=\"sensor.temperature,sensor.humidity\"" in svg
     assert b"data-ha-display-position=\"top-right\"" in svg
-    assert b"Temperature: 22 \xc2\xb0C" in svg
-    assert b"Humidity: 45 %" in svg
+    assert b"22 \xc2\xb0C" in svg
+    assert b"45 %" in svg
+
+
+def test_skipped_elements_use_neutral_color_and_persist_in_configured_svg(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect id="room" width="50" height="50" fill="yellow" stroke="black"/>
+  <text id="label" x="10" y="70" fill="black">Unused</text>
+</svg>
+"""
+    source_path = tmp_path / "floorplan.svg"
+    source_path.write_text(source, encoding="utf-8")
+    assignments = (
+        ElementAssignment("room", neutralize=True),
+        ElementAssignment("label", neutralize=True),
+    )
+    configured_path = tmp_path / "floorplan.configured.svg"
+    configured_path.write_bytes(
+        FloorplanRenderer(source_path).configured_svg(assignments)
+    )
+
+    renderer = FloorplanRenderer(configured_path)
+    svg, _ = renderer.render({})
+    root = _renderer_module.ET.fromstring(svg)
+    elements = {element.attrib.get("id"): element for element in root.iter()}
+
+    assert elements["room"].attrib["fill"] == "#808080"
+    assert elements["room"].attrib["stroke"] == "black"
+    assert elements["label"].attrib["fill"] == "#404040"
+    assert b'data-ha-neutral="true"' in svg
 
 
 def test_renders_svg_with_physical_dimensions(tmp_path: Path) -> None:

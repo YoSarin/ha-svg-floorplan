@@ -76,17 +76,16 @@ def _entity_states(hass: HomeAssistant, renderer: FloorplanRenderer) -> dict[str
 def _entity_display_values(
     hass: HomeAssistant, renderer: FloorplanRenderer
 ) -> dict[str, str]:
-    """Format selected sensors with their friendly names and measurement units."""
+    """Format selected entity states with their measurement units."""
     display_values: dict[str, str] = {}
     for entity_id in renderer.entity_ids:
         state = hass.states.get(entity_id)
         if state is None:
-            display_values[entity_id] = f"{entity_id}: —"
+            display_values[entity_id] = "—"
             continue
-        name = state.attributes.get("friendly_name", entity_id)
-        unit = state.attributes.get("unit_of_measurement", "")
+        unit = state.attributes.get("unit_of_measurement") or ""
         value = state.state
-        display_values[entity_id] = f"{name}: {value} {unit}".rstrip()
+        display_values[entity_id] = f"{value} {unit}".strip()
     return display_values
 
 
@@ -115,6 +114,7 @@ async def async_setup_entry(
                 display_position=assignment.get("display_position", "auto"),
                 color_entity_id=assignment.get("color_entity_id"),
                 color_mode=assignment.get("color_mode", "none"),
+                neutralize=assignment.get("neutralize", False),
             )
             for assignment in entry.data.get(CONF_ELEMENT_BINDINGS, [])
         )

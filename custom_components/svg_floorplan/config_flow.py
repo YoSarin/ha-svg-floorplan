@@ -8,10 +8,18 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from . import _source_path
-from .const import CONF_ELEMENT_BINDINGS, CONF_SVG_PATH, DOMAIN, MAX_SVG_BYTES
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_ELEMENT_BINDINGS,
+    CONF_SOURCE_SVG_PATH,
+    CONF_SVG_PATH,
+    DOMAIN,
+    MAX_SVG_BYTES,
+)
 from .renderer import (
     ElementAssignment,
     FloorplanError,
@@ -21,7 +29,7 @@ from .renderer import (
 _LOGGER = logging.getLogger(__name__)
 _COLOR_MODES = [
     {"label": "Do not color this element", "value": "none"},
-    {"label": "Solid temperature color", "value": "fill"},
+    {"label": "Solid color", "value": "fill"},
     {"label": "Fade to transparent", "value": "fade"},
 ]
 _DISPLAY_POSITIONS = [
@@ -135,7 +143,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 if renderer.entity_ids:
                     await self.hass.async_add_executor_job(renderer.render, {})
-                    return await self._create_entry(path, ())
+                    return await self._create_entry(path, (), source_path=path)
             except (FloorplanError, OSError) as err:
                 _LOGGER.debug("Invalid SVG floor plan %s: %s", path, err)
                 errors["base"] = (
@@ -152,8 +160,9 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._pending_path = path
                     self._pending_elements = renderer.assignable_elements
                     self._pending_assignments: list[dict[str, Any]] = []
+                    self._existing_assignments: dict[str, ElementAssignment] = {}
                     self._assignment_index = 0
-                    return await self.async_step_assign()
+                    return await self.async_step_device()
 
         return self.async_show_form(
             step_id="user",
@@ -166,16 +175,137 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"details": details},
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Reconfigure assignments for an existing floor plan."""
+        del user_input
+        entry = self._get_reconfigure_entry()
+        self._reconfigure_entry = entry
+        source_path = entry.data.get(
+            CONF_SOURCE_SVG_PATH, entry.data[CONF_SVG_PATH]
+        )
+        try:
+            renderer = await self.hass.async_add_executor_job(
+                FloorplanRenderer, _source_path(self.hass, source_path)
+            )
+            active_renderer = await self.hass.async_add_executor_job(
+                FloorplanRenderer,
+                _source_path(self.hass, entry.data[CONF_SVG_PATH]),
+            )
+            if not renderer.assignable_elements:
+                return self.async_abort(
+                    reason="reconfigure_error",
+                    description_placeholders={
+                        "details": "The SVG has no supported, identified shapes or text elements to configure."
+                    },
+                )
+        except (FloorplanError, OSError) as err:
+            _LOGGER.error("Unable to reconfigure SVG floor plan %s: %s", entry.title, err)
+            return self.async_abort(
+                reason="reconfigure_error",
+                description_placeholders={"details": str(err)},
+            )
+
+        self._pending_path = source_path
+        self._pending_elements = renderer.assignable_elements
+        self._pending_assignments = []
+        self._existing_assignments = {
+            assignment.element_id: assignment
+            for assignment in active_renderer.assignments
+        }
+        self._assignment_index = 0
+        self._device_id_default = entry.data.get(CONF_DEVICE_ID)
+        if self._device_id_default is None:
+            self._device_id_default = self._infer_device_id(active_renderer)
+        return await self.async_step_device()
+
+    def _infer_device_id(self, renderer: FloorplanRenderer) -> str | None:
+        """Infer the selected device for entries created before device selection was stored."""
+        entity_registry = er.async_get(self.hass)
+        for assignment in renderer.assignments:
+            entity_ids = (
+                *assignment.display_entity_ids,
+                *((assignment.color_entity_id,) if assignment.color_entity_id else ()),
+            )
+            for entity_id in entity_ids:
+                if (
+                    registry_entry := entity_registry.async_get(entity_id)
+                ) and registry_entry.device_id:
+                    return registry_entry.device_id
+        return None
+
+    async def async_step_device(
+        self, user_input: dict[str, str] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Choose the device whose entities are available for assignment."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            device_id = user_input["device_id"]
+            entity_registry = er.async_get(self.hass)
+            entries = er.async_entries_for_device(entity_registry, device_id)
+            self._device_entities = []
+            for entry in entries:
+                if entry.entity_id.split(".", 1)[0] not in {"sensor", "input_number"}:
+                    continue
+                if entry.disabled_by is not None:
+                    continue
+                state = self.hass.states.get(entry.entity_id)
+                name = (
+                    state.attributes.get("friendly_name")
+                    if state is not None
+                    else None
+                ) or entry.name or entry.original_name or entry.entity_id
+                self._device_entities.append(
+                    {"label": f"{name} ({entry.entity_id})", "value": entry.entity_id}
+                )
+            if not self._device_entities:
+                errors["base"] = "device_has_no_sensors"
+            else:
+                self._selected_device_id = device_id
+                return await self.async_step_assign()
+
+        device_field = vol.Required("device_id")
+        if device_default := getattr(self, "_device_id_default", None):
+            device_field = vol.Required("device_id", default=device_default)
+        return self.async_show_form(
+            step_id="device",
+            data_schema=vol.Schema(
+                {
+                    device_field: selector.DeviceSelector(
+                        selector.DeviceSelectorConfig(
+                            entity=[
+                                {"domain": ["sensor", "input_number"]},
+                            ]
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_assign(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Choose displayed sensors and color behavior for one SVG element."""
+        """Choose displayed entities and color behavior for one SVG element."""
         if user_input is not None:
             element = self._pending_elements[self._assignment_index]
             display_entity_ids = tuple(user_input.get("display_entities", ()))
             color_entity_id = user_input.get("color_entity")
-            color_mode = user_input.get("color_mode", "none")
-            if not user_input.get("skip"):
+            color_mode = user_input.get("color_mode", "fill")
+            skipped = user_input.get("skip", False)
+            if skipped:
+                self._pending_assignments.append(
+                    {
+                        "element_id": element.element_id,
+                        "display_entity_ids": [],
+                        "display_position": "auto",
+                        "color_entity_id": None,
+                        "color_mode": "none",
+                        "neutralize": True,
+                    }
+                )
+            else:
                 if color_mode != "none" and not color_entity_id:
                     return self._show_assignment_form("color_sensor_required")
                 if color_mode == "none" and color_entity_id:
@@ -200,8 +330,12 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._assignment_index += 1
 
             if self._assignment_index >= len(self._pending_elements):
-                if not self._pending_assignments:
+                if not any(
+                    not assignment.get("neutralize", False)
+                    for assignment in self._pending_assignments
+                ):
                     self._assignment_index = 0
+                    self._pending_assignments.clear()
                     return self._show_assignment_form("no_entity_assigned")
 
                 try:
@@ -238,12 +372,15 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         else "file_read_error",
                         str(err) if isinstance(err, FloorplanError) else "",
                     )
+                if hasattr(self, "_reconfigure_entry"):
+                    return await self._update_reconfigured_entry(configured_path)
                 return await self._create_entry(
                     configured_path.relative_to(
                         Path(self.hass.config.config_dir).resolve()
                     ).as_posix(),
                     (),
                     title=Path(self._pending_path).stem,
+                    source_path=self._pending_path,
                 )
 
         return self._show_assignment_form()
@@ -259,14 +396,35 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "element_name": element.label,
         }
         fields: dict[Any, Any] = {}
+        entity_options = self._device_entities
+        available_entity_ids = {option["value"] for option in entity_options}
+        previous = self._existing_assignments.get(element.element_id)
         if element.tag in {"text", "rect", "circle", "ellipse"}:
-            fields[vol.Optional("display_entities")] = selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["sensor", "input_number"], multiple=True
+            fields[
+                vol.Optional(
+                    "display_entities",
+                    default=[
+                        entity_id
+                        for entity_id in previous.display_entity_ids
+                        if entity_id in available_entity_ids
+                    ]
+                    if previous
+                    else [],
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=entity_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             )
             if element.tag != "text":
-                fields[vol.Optional("display_position", default="auto")] = (
+                fields[
+                    vol.Optional(
+                        "display_position",
+                        default=previous.display_position if previous else "auto",
+                    )
+                ] = (
                     selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=_DISPLAY_POSITIONS,
@@ -275,16 +433,29 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 )
         fields.update({
-            vol.Optional("color_entity"): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["sensor", "input_number"])
+            vol.Optional(
+                "color_entity",
+                default=previous.color_entity_id
+                if previous and previous.color_entity_id in available_entity_ids
+                else None,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=entity_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
-            vol.Optional("color_mode", default="none"): selector.SelectSelector(
+            vol.Optional(
+                "color_mode",
+                default=previous.color_mode if previous else "fill",
+            ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=_COLOR_MODES,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Optional("skip", default=False): bool,
+            vol.Optional(
+                "skip", default=previous.neutralize if previous else False
+            ): bool,
         })
         return self.async_show_form(
             step_id="assign",
@@ -297,6 +468,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "details": details,
                 "position": position,
             },
+            last_step=self._assignment_index + 1 >= len(self._pending_elements),
         )
 
     def _build_assignments(self) -> tuple[ElementAssignment, ...]:
@@ -307,6 +479,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 display_position=assignment["display_position"],
                 color_entity_id=assignment["color_entity_id"],
                 color_mode=assignment["color_mode"],
+                neutralize=assignment.get("neutralize", False),
             )
             for assignment in self._pending_assignments
         )
@@ -316,13 +489,41 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         path: str,
         assignments: tuple[dict[str, Any], ...],
         title: str | None = None,
+        source_path: str | None = None,
     ) -> config_entries.ConfigFlowResult:
         await self.async_set_unique_id(path)
         self._abort_if_unique_id_configured()
+        data = {
+            CONF_SVG_PATH: path,
+            CONF_SOURCE_SVG_PATH: source_path or path,
+            CONF_ELEMENT_BINDINGS: list(assignments),
+        }
+        if selected_device_id := getattr(self, "_selected_device_id", None):
+            data[CONF_DEVICE_ID] = selected_device_id
         return self.async_create_entry(
             title=title or Path(path).stem,
-            data={
-                CONF_SVG_PATH: path,
-                CONF_ELEMENT_BINDINGS: list(assignments),
-            },
+            data=data,
         )
+
+    async def _update_reconfigured_entry(
+        self, configured_path: Path
+    ) -> config_entries.ConfigFlowResult:
+        """Save the configured SVG and reload the existing entry."""
+        entry = self._reconfigure_entry
+        next_source_path = self._pending_path
+        current_source_path = entry.data.get(
+            CONF_SOURCE_SVG_PATH, entry.data[CONF_SVG_PATH]
+        )
+        configured_relative_path = configured_path.relative_to(
+            Path(self.hass.config.config_dir).resolve()
+        ).as_posix()
+        if current_source_path == entry.data[CONF_SVG_PATH]:
+            next_source_path = configured_relative_path
+        data = {
+            **entry.data,
+            CONF_SVG_PATH: configured_relative_path,
+            CONF_SOURCE_SVG_PATH: next_source_path,
+            CONF_DEVICE_ID: self._selected_device_id,
+            CONF_ELEMENT_BINDINGS: [],
+        }
+        return self.async_update_reload_and_abort(entry, data=data)

@@ -4,6 +4,8 @@ from typing import Final
 
 DOMAIN: Final = "svg_floorplan"
 CONF_SVG_PATH: Final = "svg_path"
+CONF_SOURCE_SVG_PATH: Final = "source_svg_path"
+CONF_DEVICE_ID: Final = "device_id"
 CONF_ELEMENT_BINDINGS: Final = "element_bindings"
 
 DEFAULT_MIN: Final = 16.0

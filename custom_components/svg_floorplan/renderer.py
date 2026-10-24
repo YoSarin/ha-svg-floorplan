@@ -36,6 +36,8 @@ PIXELS_PER_UNIT = {
     "pc": 16.0,
 }
 VALUE_ROLES = {"area", "glow", "value"}
+NEUTRAL_COLOR = "#808080"
+NEUTRAL_TEXT_COLOR = "#404040"
 ASSIGNABLE_TAGS = {
     "circle",
     "ellipse",
@@ -81,6 +83,7 @@ class ElementAssignment:
     display_position: str = "auto"
     color_entity_id: str | None = None
     color_mode: str = "none"
+    neutralize: bool = False
 
 
 @dataclass(frozen=True)
@@ -325,6 +328,8 @@ def _bindings(
                 f"SVG element {assignment.element_id!r} cannot be assigned"
             )
         tag = element.tag.rsplit("}", 1)[-1]
+        if assignment.neutralize:
+            continue
 
         # Keep entries created by older versions working.
         if assignment.entity_id is not None and assignment.role is not None:
@@ -544,10 +549,11 @@ def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
         )
         color_entity = element.attrib.get("data-ha-color-entity")
         color_mode = element.attrib.get("data-ha-color-mode", "none")
+        neutralize = element.attrib.get("data-ha-neutral") == "true"
         display_position = element.attrib.get(
             "data-ha-display-position", "auto"
         )
-        if display_entities or color_entity or color_mode != "none":
+        if display_entities or color_entity or color_mode != "none" or neutralize:
             assignments.append(
                 ElementAssignment(
                     element_id=element_id,
@@ -555,6 +561,7 @@ def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
                     display_position=display_position,
                     color_entity_id=color_entity,
                     color_mode=color_mode,
+                    neutralize=neutralize,
                 )
             )
     return tuple(assignments)
@@ -596,6 +603,11 @@ class FloorplanRenderer:
         self.assignments = assignments or _assignments_from_svg(root)
         self.bindings, self.display_entities_by_element = _bindings(
             root, self.assignments
+        )
+        self.neutralized_elements = tuple(
+            assignment.element_id
+            for assignment in self.assignments
+            if assignment.neutralize
         )
         self.display_position_by_element = {
             assignment.element_id: assignment.display_position
@@ -642,6 +654,14 @@ class FloorplanRenderer:
         }
         for assignment in assignments:
             element = elements_by_id[assignment.element_id]
+            for attribute in (
+                "data-ha-display-entities",
+                "data-ha-display-position",
+                "data-ha-color-entity",
+                "data-ha-color-mode",
+                "data-ha-neutral",
+            ):
+                element.attrib.pop(attribute, None)
             if assignment.display_entity_ids:
                 element.set(
                     "data-ha-display-entities",
@@ -653,6 +673,10 @@ class FloorplanRenderer:
             if assignment.color_entity_id is not None:
                 element.set("data-ha-color-entity", assignment.color_entity_id)
                 element.set("data-ha-color-mode", assignment.color_mode)
+            if assignment.neutralize:
+                element.set("data-ha-neutral", "true")
+            else:
+                element.attrib.pop("data-ha-neutral", None)
         return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
     @property
@@ -715,6 +739,13 @@ class FloorplanRenderer:
                 _set_glow(elements_by_id[element_id], gradient_id)
             for element_id in binding.value_ids:
                 _set_text(elements_by_id[element_id], display)
+
+        for element_id in self.neutralized_elements:
+            element = elements_by_id[element_id]
+            if element.tag.rsplit("}", 1)[-1] == "text":
+                _set_fill(element, NEUTRAL_TEXT_COLOR)
+            else:
+                _set_fill(element, NEUTRAL_COLOR)
 
         display_values = display_values or {}
         parents = {
