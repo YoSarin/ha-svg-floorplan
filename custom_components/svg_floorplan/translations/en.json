@@ -10,7 +10,7 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose one or more entities from this element's device to display here. Existing text is updated; readings on rectangles, circles, and ellipses are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same device to control this element's color. Its numeric state is mapped to the color scale. Choose solid color or fade to transparent. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Existing text is updated; readings on rectangles, circles, and ellipses are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color or fade to transparent. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
         "data": {
           "display_entities": "Entities to display on this element",
           "display_position": "Where to place the readings",
@@ -21,9 +21,10 @@
       },
       "device": {
         "title": "Choose devices for this element",
-        "description": "Element {position}: {element_name} (SVG ID: {element_id}). Choose one or more Home Assistant devices that provide entities for this element. Their sensor and input number entities will be offered on the next step.",
+        "description": "Element {position}: {element_name} (SVG ID: {element_id}). Choose one or more Home Assistant devices that provide entities for this element. Their sensor and input number entities will be offered on the next step. Alternatively, skip this element here to use neutral gray without selecting devices.",
         "data": {
-          "device_ids": "Devices"
+          "device_ids": "Devices",
+          "skip": "Skip this element (use neutral gray)"
         }
       }
     },
@@ -52,7 +53,8 @@
       "unsupported_display_entity": "Displayed entities must be sensors or input numbers.",
       "invalid_color_mode": "Choose no color, solid color, or fade to transparent.",
       "invalid_display_position": "Choose an automatic, centered, or corner position for the displayed readings.",
-      "device_has_no_sensors": "The selected devices have no enabled sensor or input number entities to assign. Choose other devices."
+      "device_has_no_sensors": "The selected devices have no enabled sensor or input number entities to assign. Choose other devices.",
+      "device_required": "Choose at least one device, or skip this element to use neutral gray."
     },
     "abort": {
       "already_configured": "This SVG file is already configured.",

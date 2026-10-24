@@ -121,9 +121,12 @@ uses the center for room-sized shapes and the top-left edge for floor-plan-sized
 backdrops; you can choose a corner or center manually.
 
 For each element, setup lets you select one or more devices and then choose
-display and color entities from the selected devices. Numeric color-entity
-states use the legacy color scale above. The flow uses labels from SVG editors
-such as Inkscape, falling back to the parent layer label and then the SVG ID.
+display and color entities from the selected devices. All eligible entities
+are selected for display by default; a temperature entity is selected for color
+when available. Numeric color-entity states use the legacy color scale above.
+Elements can be skipped at device selection or assignment to use neutral gray.
+The flow uses labels from SVG editors such as Inkscape, falling back to the
+parent layer label and then the SVG ID.
 
 Assignments are embedded in the configured SVG, so the file can be reused
 without repeating setup. The flow manages these attributes; they generally do

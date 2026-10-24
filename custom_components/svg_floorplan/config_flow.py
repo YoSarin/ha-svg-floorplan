@@ -244,35 +244,43 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Choose devices whose entities are available for this element."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            device_ids = tuple(user_input["device_ids"])
-            entity_registry = er.async_get(self.hass)
-            entity_options: dict[str, dict[str, str]] = {}
-            for device_id in device_ids:
-                entries = er.async_entries_for_device(entity_registry, device_id)
-                for entry in entries:
-                    if entry.entity_id.split(".", 1)[0] not in {
-                        "sensor",
-                        "input_number",
-                    }:
-                        continue
-                    if entry.disabled_by is not None:
-                        continue
-                    state = self.hass.states.get(entry.entity_id)
-                    name = (
-                        state.attributes.get("friendly_name")
-                        if state is not None
-                        else None
-                    ) or entry.name or entry.original_name or entry.entity_id
-                    entity_options[entry.entity_id] = {
-                        "label": f"{name} ({entry.entity_id})",
-                        "value": entry.entity_id,
-                    }
-            self._device_entities = list(entity_options.values())
-            if not self._device_entities:
-                errors["base"] = "device_has_no_sensors"
+            if user_input.get("skip", False):
+                self._selected_device_ids = ()
+                self._device_entities = []
+                return await self.async_step_assign({"skip": True})
+
+            device_ids = tuple(user_input.get("device_ids", ()))
+            if not device_ids:
+                errors["base"] = "device_required"
             else:
-                self._selected_device_ids = device_ids
-                return await self.async_step_assign()
+                entity_registry = er.async_get(self.hass)
+                entity_options: dict[str, dict[str, str]] = {}
+                for device_id in device_ids:
+                    entries = er.async_entries_for_device(entity_registry, device_id)
+                    for entry in entries:
+                        if entry.entity_id.split(".", 1)[0] not in {
+                            "sensor",
+                            "input_number",
+                        }:
+                            continue
+                        if entry.disabled_by is not None:
+                            continue
+                        state = self.hass.states.get(entry.entity_id)
+                        name = (
+                            state.attributes.get("friendly_name")
+                            if state is not None
+                            else None
+                        ) or entry.name or entry.original_name or entry.entity_id
+                        entity_options[entry.entity_id] = {
+                            "label": f"{name} ({entry.entity_id})",
+                            "value": entry.entity_id,
+                        }
+                self._device_entities = list(entity_options.values())
+                if not self._device_entities:
+                    errors["base"] = "device_has_no_sensors"
+                else:
+                    self._selected_device_ids = device_ids
+                    return await self.async_step_assign()
 
         element = self._pending_elements[self._assignment_index]
         self.context["title_placeholders"] = {
@@ -285,9 +293,9 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         device_default = self._infer_device_ids(previous)
         if not device_default and self._legacy_device_id:
             device_default = (self._legacy_device_id,)
-        device_field = vol.Required("device_ids")
+        device_field = vol.Optional("device_ids")
         if device_default:
-            device_field = vol.Required("device_ids", default=list(device_default))
+            device_field = vol.Optional("device_ids", default=list(device_default))
         return self.async_show_form(
             step_id="device",
             data_schema=vol.Schema(
@@ -300,6 +308,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             ]
                         )
                     ),
+                    vol.Optional("skip", default=False): bool,
                 }
             ),
             errors=errors,
@@ -432,17 +441,36 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entity_options = self._device_entities
         available_entity_ids = {option["value"] for option in entity_options}
         previous = self._existing_assignments.get(element.element_id)
+        display_entity_defaults = (
+            [
+                entity_id
+                for entity_id in previous.display_entity_ids
+                if entity_id in available_entity_ids
+            ]
+            if previous
+            else [option["value"] for option in entity_options]
+        )
+        temperature_entity_default = next(
+            (
+                option["value"]
+                for option in entity_options
+                if (state := self.hass.states.get(option["value"]))
+                and state.attributes.get("device_class") == "temperature"
+            ),
+            None,
+        )
+        color_entity_default = (
+            previous.color_entity_id
+            if previous and previous.color_entity_id in available_entity_ids
+            else None
+            if previous and previous.color_mode == "none"
+            else temperature_entity_default
+        )
         if element.tag in {"text", "rect", "circle", "ellipse"}:
             fields[
                 vol.Optional(
                     "display_entities",
-                    default=[
-                        entity_id
-                        for entity_id in previous.display_entity_ids
-                        if entity_id in available_entity_ids
-                    ]
-                    if previous
-                    else [],
+                    default=display_entity_defaults,
                 )
             ] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
@@ -468,9 +496,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields.update({
             vol.Optional(
                 "color_entity",
-                default=previous.color_entity_id
-                if previous and previous.color_entity_id in available_entity_ids
-                else None,
+                default=color_entity_default,
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=entity_options,
