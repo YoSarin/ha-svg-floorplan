@@ -448,7 +448,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 selector.SelectSelectorConfig(
                     options=entity_options,
                     multiple=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    mode=selector.SelectSelectorMode.LIST,
                 )
             )
             if element.tag != "text":
