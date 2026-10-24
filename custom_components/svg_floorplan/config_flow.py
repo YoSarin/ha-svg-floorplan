@@ -4,26 +4,63 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from . import _source_path
-from .const import CONF_ELEMENT_BINDINGS, CONF_SVG_PATH, DOMAIN
+from .const import CONF_ELEMENT_BINDINGS, CONF_SVG_PATH, DOMAIN, MAX_SVG_BYTES
 from .renderer import (
-    AssignableElement,
     ElementAssignment,
     FloorplanError,
     FloorplanRenderer,
 )
 
 _LOGGER = logging.getLogger(__name__)
-_ROLES = [
-    {"label": "Color this shape using the sensor temperature", "value": "area"},
-    {"label": "Display the sensor reading as text", "value": "value"},
-    {"label": "Add a temperature-colored fading glow", "value": "glow"},
+_COLOR_MODES = [
+    {"label": "Do not color this element", "value": "none"},
+    {"label": "Solid temperature color", "value": "fill"},
+    {"label": "Fade to transparent", "value": "fade"},
 ]
+
+
+def _create_configured_copy(
+    source_path: Path, assignments: tuple[ElementAssignment, ...]
+) -> Path:
+    """Write and validate a configured SVG beside its original."""
+    source_renderer = FloorplanRenderer(source_path, assignments)
+    source_renderer.render({})
+    configured_svg = source_renderer.configured_svg(assignments)
+    if len(configured_svg) > MAX_SVG_BYTES:
+        raise FloorplanError(
+            f"Configured SVG exceeds the {MAX_SVG_BYTES} byte size limit"
+        )
+
+    output_path = source_path.with_name(f"{source_path.stem}.configured.svg")
+    suffix = 2
+    while True:
+        try:
+            with output_path.open("xb") as configured_file:
+                configured_file.write(configured_svg)
+            break
+        except FileExistsError:
+            output_path = source_path.with_name(
+                f"{source_path.stem}.configured-{suffix}.svg"
+            )
+            suffix += 1
+        except OSError:
+            output_path.unlink(missing_ok=True)
+            raise
+
+    try:
+        configured_renderer = FloorplanRenderer(output_path)
+        configured_renderer.render({})
+    except (FloorplanError, OSError):
+        output_path.unlink(missing_ok=True)
+        raise
+    return output_path
 
 
 def _error_key(error: FloorplanError) -> str:
@@ -34,6 +71,8 @@ def _error_key(error: FloorplanError) -> str:
     if message.startswith("SVG file does not exist"):
         return "file_not_found"
     if message.startswith("SVG exceeds"):
+        return "file_too_large"
+    if message.startswith("Configured SVG exceeds"):
         return "file_too_large"
     if message.startswith("SVG is not valid XML"):
         return "malformed_xml"
@@ -53,11 +92,17 @@ def _error_key(error: FloorplanError) -> str:
         return "invalid_color"
     if "IDs must be unique" in message:
         return "duplicate_ids"
+    if "Display sensors can only be assigned to text" in message:
+        return "display_sensors_require_text"
+    if "Display entities must be sensors" in message:
+        return "unsupported_display_entity"
+    if "Color mode must be" in message:
+        return "invalid_color_mode"
+    if "Choose fill or fade" in message:
+        return "color_mode_required"
+    if "Choose a sensor to drive" in message:
+        return "color_sensor_required"
     return "invalid_metadata"
-
-
-def _default_role(element: AssignableElement) -> str:
-    return "value" if element.tag == "text" else "area"
 
 
 class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -96,7 +141,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     self._pending_path = path
                     self._pending_elements = renderer.assignable_elements
-                    self._pending_assignments: list[ElementAssignment] = []
+                    self._pending_assignments: list[dict[str, Any]] = []
                     self._assignment_index = 0
                     return await self.async_step_assign()
 
@@ -112,21 +157,32 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_assign(
-        self, user_input: dict[str, str] | None = None
+        self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Assign an entity and rendering role to each SVG element."""
+        """Choose displayed sensors and color behavior for one SVG element."""
         if user_input is not None:
             element = self._pending_elements[self._assignment_index]
-            entity_id = user_input.get("entity_id")
-            if not user_input.get("skip") and not entity_id:
-                return self._show_assignment_form("entity_or_skip_required")
-            if not user_input.get("skip") and entity_id:
+            display_entity_ids = tuple(user_input.get("display_entities", ()))
+            color_entity_id = user_input.get("color_entity")
+            color_mode = user_input.get("color_mode", "none")
+            if not user_input.get("skip"):
+                if color_mode != "none" and not color_entity_id:
+                    return self._show_assignment_form("color_sensor_required")
+                if color_mode == "none" and color_entity_id:
+                    return self._show_assignment_form("color_mode_required")
+                if (
+                    not display_entity_ids
+                    and color_mode == "none"
+                    and not color_entity_id
+                ):
+                    return self._show_assignment_form("configure_or_skip_required")
                 self._pending_assignments.append(
-                    ElementAssignment(
-                        element_id=element.element_id,
-                        entity_id=entity_id,
-                        role=user_input["role"],
-                    )
+                    {
+                        "element_id": element.element_id,
+                        "display_entity_ids": list(display_entity_ids),
+                        "color_entity_id": color_entity_id,
+                        "color_mode": color_mode,
+                    }
                 )
             self._assignment_index += 1
 
@@ -137,12 +193,17 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 try:
                     source_path = _source_path(self.hass, self._pending_path)
+                    assignments = self._build_assignments()
                     renderer = await self.hass.async_add_executor_job(
                         FloorplanRenderer,
                         source_path,
-                        tuple(self._pending_assignments),
+                        assignments,
                     )
                     await self.hass.async_add_executor_job(renderer.render, {})
+                    configured_path = await self.hass.async_add_executor_job(
+                        _create_configured_copy, source_path, assignments
+                    )
+                    _LOGGER.info("Saved configured SVG floor plan to %s", configured_path)
                 except (FloorplanError, OSError) as err:
                     _LOGGER.error(
                         "Unable to configure SVG floor plan %s: %s",
@@ -156,7 +217,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._pending_assignments = [
                         assignment
                         for assignment in self._pending_assignments
-                        if assignment.element_id != last_element_id
+                        if assignment["element_id"] != last_element_id
                     ]
                     return self._show_assignment_form(
                         _error_key(err)
@@ -165,7 +226,11 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         str(err) if isinstance(err, FloorplanError) else "",
                     )
                 return await self._create_entry(
-                    self._pending_path, tuple(self._pending_assignments)
+                    configured_path.relative_to(
+                        Path(self.hass.config.config_dir).resolve()
+                    ).as_posix(),
+                    (),
+                    title=Path(self._pending_path).stem,
                 )
 
         return self._show_assignment_form()
@@ -180,26 +245,28 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "position": position,
             "element_name": element.label,
         }
+        fields: dict[Any, Any] = {}
+        if element.tag == "text":
+            fields[vol.Optional("display_entities")] = selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["sensor", "input_number"], multiple=True
+                )
+            )
+        fields.update({
+            vol.Optional("color_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["sensor", "input_number"])
+            ),
+            vol.Optional("color_mode", default="none"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_COLOR_MODES,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional("skip", default=False): bool,
+        })
         return self.async_show_form(
             step_id="assign",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional("entity_id"): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain=["sensor", "input_number"]
-                        )
-                    ),
-                    vol.Optional("skip", default=False): bool,
-                    vol.Optional("role", default=_default_role(element)): (
-                        selector.SelectSelector(
-                            selector.SelectSelectorConfig(
-                                options=_ROLES,
-                                mode=selector.SelectSelectorMode.DROPDOWN,
-                            )
-                        )
-                    ),
-                }
-            ),
+            data_schema=vol.Schema(fields),
             errors=errors,
             description_placeholders={
                 "element_id": element.element_id,
@@ -210,22 +277,29 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    def _build_assignments(self) -> tuple[ElementAssignment, ...]:
+        return tuple(
+            ElementAssignment(
+                element_id=assignment["element_id"],
+                display_entity_ids=tuple(assignment["display_entity_ids"]),
+                color_entity_id=assignment["color_entity_id"],
+                color_mode=assignment["color_mode"],
+            )
+            for assignment in self._pending_assignments
+        )
+
     async def _create_entry(
-        self, path: str, assignments: tuple[ElementAssignment, ...]
+        self,
+        path: str,
+        assignments: tuple[dict[str, Any], ...],
+        title: str | None = None,
     ) -> config_entries.ConfigFlowResult:
         await self.async_set_unique_id(path)
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
-            title=Path(path).stem,
+            title=title or Path(path).stem,
             data={
                 CONF_SVG_PATH: path,
-                CONF_ELEMENT_BINDINGS: [
-                    {
-                        "element_id": assignment.element_id,
-                        "entity_id": assignment.entity_id,
-                        "role": assignment.role,
-                    }
-                    for assignment in assignments
-                ],
+                CONF_ELEMENT_BINDINGS: list(assignments),
             },
         )

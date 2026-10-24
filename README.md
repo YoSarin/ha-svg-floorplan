@@ -30,9 +30,11 @@ no system fonts installed.
 3. Enter the SVG path relative to the configuration directory:
    `floorplans/house.svg`.
 4. If the SVG has no `data-ha-entity` metadata, the setup flow walks through
-   its identified shapes and text elements by their SVG editor labels. Choose
-   an entity and display role, or explicitly select **Skip this element** to
-   leave it unchanged.
+   its identified shapes and text elements by their SVG editor labels. On a
+   text element, choose one or more sensors to display. Independently, choose
+   a color sensor and solid or fading color, or explicitly skip the element.
+   Setup saves a configured copy beside the original (for example
+   `house.configured.svg`) with reusable sensor metadata embedded in the SVG.
 5. Restart or reload the integration after changing the source SVG.
 
 The integration creates two image entities: one SVG and one PNG. Use the PNG
@@ -72,10 +74,17 @@ The metadata attributes are optional except `data-ha-entity`; omitted values
 use the defaults below. Colors must be six-digit hex colors. The integration
 updates all marked area and value elements within a room group.
 Elements without metadata can instead be assigned during setup. Supported
-elements need an SVG `id`; each assignment selects a sensor or input number and
-one of the `area`, `value`, or `glow` roles. The setup flow uses labels from
+elements need an SVG `id`. Text elements can display multiple sensors; every
+value is shown on its own line with its Home Assistant friendly name and unit.
+The color sensor is selected independently. The setup flow uses labels from
 SVG editors such as Inkscape to identify each element, falling back to its
 parent layer label and then its SVG ID.
+
+Assignments are saved on each configured element as SVG attributes:
+`data-ha-display-entities` contains comma-separated entity IDs, while
+`data-ha-color-entity` and `data-ha-color-mode` select the sensor and either
+`fill` or `fade`. This means the generated configured SVG retains its behavior
+when reused or added to another Home Assistant installation.
 
 | Attribute | Default | Meaning |
 | --- | --- | --- |

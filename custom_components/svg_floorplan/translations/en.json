@@ -10,11 +10,12 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Choose what to do with this SVG element. Its SVG ID is {element_id} and its type is <{tag}>.\n\nArea: fill this shape with a color based on the selected sensor's temperature.\nValue: replace this text with the selected sensor's reading.\nGlow: add a soft temperature-colored glow that fades to transparent.\n\nTurn on “Skip this element” to leave it unchanged. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nFor text elements, select one or more sensors to show inside the shape. Each value appears on its own line with its friendly name and unit.\n\nChoose a separate sensor to control this element's temperature color. Choose solid color or fade to transparent. Displayed sensors and the color sensor can be different.\n\nSelect “Skip this element” to leave it unchanged. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
         "data": {
-          "entity_id": "Sensor or input number",
-          "skip": "Skip this element (leave it unchanged)",
-          "role": "How to use this element"
+          "display_entities": "Show these sensor values as text (text elements only)",
+          "color_entity": "Use this sensor to choose the color",
+          "color_mode": "Color or fade this element",
+          "skip": "Skip this element (leave it unchanged)"
         }
       }
     },
@@ -35,7 +36,13 @@
       "render_failed": "The SVG is valid, but Home Assistant could not render it as a PNG. Check the SVG features and bundled renderer logs.",
       "no_assignable_elements": "The SVG has no supported, identified shapes or text elements to assign. Add IDs to shapes or text in your SVG editor.",
       "no_entity_assigned": "Assign at least one Home Assistant entity before continuing.",
-      "entity_or_skip_required": "Select an entity, or turn on “Skip this element” to leave this SVG element unchanged."
+      "entity_or_skip_required": "Select an entity, or turn on “Skip this element” to leave this SVG element unchanged.",
+      "color_sensor_required": "Choose a color sensor, or set the color mode to “Do not color this element”.",
+      "color_mode_required": "Choose solid color or fade, or clear the color sensor.",
+      "configure_or_skip_required": "Choose displayed sensors or configure a color sensor, or turn on “Skip this element”.",
+      "display_sensors_require_text": "Only SVG text elements can display sensor values. Assign the sensor to a text element instead.",
+      "unsupported_display_entity": "Displayed entities must be sensors or input numbers.",
+      "invalid_color_mode": "Choose no color, solid color, or fade to transparent."
     },
     "abort": {
       "already_configured": "This SVG file is already configured."

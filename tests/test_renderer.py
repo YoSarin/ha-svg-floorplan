@@ -169,6 +169,100 @@ def test_assigns_entity_to_svg_element_without_metadata(tmp_path: Path) -> None:
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_displays_multiple_sensors_and_colors_with_separate_sensor(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect id="room" width="100" height="100"/>
+  <text id="room-values" x="10" y="20"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (
+            ElementAssignment(
+                "room",
+                display_entity_ids=(),
+                color_entity_id="sensor.temperature",
+                color_mode="fill",
+            ),
+            ElementAssignment(
+                "room-values",
+                display_entity_ids=(
+                    "sensor.temperature",
+                    "sensor.humidity",
+                ),
+            ),
+        ),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.temperature": "22", "sensor.humidity": "45"},
+        {
+            "sensor.temperature": "Living temperature: 22 °C",
+            "sensor.humidity": "Living humidity: 45 %",
+        },
+    )
+
+    assert set(renderer.entity_ids) == {
+        "sensor.temperature",
+        "sensor.humidity",
+    }
+    assert b"#22C55E" in svg
+    assert b"Living temperature: 22 \xc2\xb0C" in svg
+    assert b"Living humidity: 45 %" in svg
+    assert b":tspan" in svg
+
+
+def test_configured_svg_reloads_sensor_choices_without_config_flow(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect id="room" width="100" height="100"/>
+  <text id="room-values" x="10" y="20"/>
+</svg>
+"""
+    source_path = tmp_path / "floorplan.svg"
+    source_path.write_text(source, encoding="utf-8")
+    assignments = (
+        ElementAssignment(
+            "room",
+            color_entity_id="sensor.temperature",
+            color_mode="fade",
+        ),
+        ElementAssignment(
+            "room-values",
+            display_entity_ids=("sensor.temperature", "sensor.humidity"),
+        ),
+    )
+
+    configured_path = tmp_path / "floorplan.configured.svg"
+    configured_path.write_bytes(
+        FloorplanRenderer(source_path).configured_svg(assignments)
+    )
+    renderer = FloorplanRenderer(configured_path)
+    svg, _ = renderer.render(
+        {"sensor.temperature": "22", "sensor.humidity": "45"},
+        {
+            "sensor.temperature": "Temperature: 22 °C",
+            "sensor.humidity": "Humidity: 45 %",
+        },
+    )
+
+    assert set(renderer.entity_ids) == {
+        "sensor.temperature",
+        "sensor.humidity",
+    }
+    assert b"data-ha-color-mode=\"fade\"" in svg
+    assert b"data-ha-display-entities=\"sensor.temperature,sensor.humidity\"" in svg
+    assert b"Temperature: 22 \xc2\xb0C" in svg
+    assert b"Humidity: 45 %" in svg
+
+
 def test_renders_svg_with_physical_dimensions(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="5mm"

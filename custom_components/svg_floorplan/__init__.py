@@ -73,11 +73,31 @@ def _entity_states(hass: HomeAssistant, renderer: FloorplanRenderer) -> dict[str
     }
 
 
+def _entity_display_values(
+    hass: HomeAssistant, renderer: FloorplanRenderer
+) -> dict[str, str]:
+    """Format selected sensors with their friendly names and measurement units."""
+    display_values: dict[str, str] = {}
+    for entity_id in renderer.entity_ids:
+        state = hass.states.get(entity_id)
+        if state is None:
+            display_values[entity_id] = f"{entity_id}: —"
+            continue
+        name = state.attributes.get("friendly_name", entity_id)
+        unit = state.attributes.get("unit_of_measurement", "")
+        value = state.state
+        display_values[entity_id] = f"{name}: {value} {unit}".rstrip()
+    return display_values
+
+
 async def _render(
     hass: HomeAssistant, runtime_data: FloorplanRuntimeData
 ) -> tuple[bytes, bytes]:
     states = _entity_states(hass, runtime_data.renderer)
-    return await hass.async_add_executor_job(runtime_data.renderer.render, states)
+    display_values = _entity_display_values(hass, runtime_data.renderer)
+    return await hass.async_add_executor_job(
+        runtime_data.renderer.render, states, display_values
+    )
 
 
 async def async_setup_entry(
@@ -87,7 +107,14 @@ async def async_setup_entry(
     try:
         path = _source_path(hass, entry.data[CONF_SVG_PATH])
         assignments = tuple(
-            ElementAssignment(**assignment)
+            ElementAssignment(
+                element_id=assignment["element_id"],
+                entity_id=assignment.get("entity_id"),
+                role=assignment.get("role"),
+                display_entity_ids=tuple(assignment.get("display_entity_ids", ())),
+                color_entity_id=assignment.get("color_entity_id"),
+                color_mode=assignment.get("color_mode", "none"),
+            )
             for assignment in entry.data.get(CONF_ELEMENT_BINDINGS, [])
         )
         renderer = await hass.async_add_executor_job(

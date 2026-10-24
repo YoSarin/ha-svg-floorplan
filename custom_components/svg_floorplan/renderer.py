@@ -71,11 +71,14 @@ class RoomBinding:
 
 @dataclass(frozen=True)
 class ElementAssignment:
-    """A Home Assistant entity and rendering role assigned to an SVG element."""
+    """Sensor display and color behavior configured for one SVG element."""
 
     element_id: str
-    entity_id: str
-    role: str
+    entity_id: str | None = None
+    role: str | None = None
+    display_entity_ids: tuple[str, ...] = ()
+    color_entity_id: str | None = None
+    color_mode: str = "none"
 
 
 @dataclass(frozen=True)
@@ -192,6 +195,19 @@ def _set_text(element: ET.Element, text: str) -> None:
     element.text = text
 
 
+def _set_text_lines(element: ET.Element, lines: tuple[str, ...]) -> None:
+    for child in list(element):
+        element.remove(child)
+    element.text = None
+    x = element.attrib.get("x")
+    for index, line in enumerate(lines):
+        attributes = {"dy": "0" if index == 0 else "1.2em"}
+        if x is not None:
+            attributes["x"] = x
+        span = ET.SubElement(element, f"{{{SVG_NAMESPACE}}}tspan", attributes)
+        span.text = line
+
+
 def _normalize_physical_dimensions(root: ET.Element) -> None:
     """Convert physical SVG sizes to CSS pixels for rasterizer compatibility."""
     for dimension in ("width", "height"):
@@ -209,8 +225,15 @@ def _normalize_physical_dimensions(root: ET.Element) -> None:
 
 def _bindings(
     root: ET.Element, assignments: tuple[ElementAssignment, ...]
-) -> tuple[RoomBinding, ...]:
+) -> tuple[tuple[RoomBinding, ...], dict[str, tuple[str, ...]]]:
     bindings: list[RoomBinding] = []
+    display_entities_by_element: dict[str, tuple[str, ...]] = {}
+    assigned_elements: set[str] = set()
+    elements_by_id = {
+        element_id: element
+        for element in root.iter()
+        if (element_id := _element_id(element)) is not None
+    }
     for group in root.iter():
         entity_id = group.attrib.get("data-ha-entity")
         if entity_id is None:
@@ -288,13 +311,6 @@ def _bindings(
             )
         )
 
-    elements_by_id = {
-        element_id: element
-        for element in root.iter()
-        if (element_id := _element_id(element)) is not None
-    }
-    assigned_elements: set[str] = set()
-    assigned_by_entity: dict[str, dict[str, list[str]]] = {}
     for assignment in assignments:
         if assignment.element_id in assigned_elements:
             raise FloorplanError(
@@ -306,24 +322,85 @@ def _bindings(
             raise FloorplanError(
                 f"SVG element {assignment.element_id!r} cannot be assigned"
             )
-        if not assignment.entity_id.startswith(("sensor.", "input_number.")):
-            raise FloorplanError(
-                f"{assignment.entity_id!r} must be a sensor or input_number entity"
-            )
-        if assignment.role not in VALUE_ROLES:
-            raise FloorplanError(f"{assignment.role!r} is not a supported element role")
-        roles = assigned_by_entity.setdefault(
-            assignment.entity_id, {"area": [], "glow": [], "value": []}
-        )
-        roles[assignment.role].append(assignment.element_id)
+        tag = element.tag.rsplit("}", 1)[-1]
 
-    for entity_id, roles in assigned_by_entity.items():
+        # Keep entries created by older versions working.
+        if assignment.entity_id is not None and assignment.role is not None:
+            if not assignment.entity_id.startswith(("sensor.", "input_number.")):
+                raise FloorplanError(
+                    f"{assignment.entity_id!r} must be a sensor or input_number entity"
+                )
+            if assignment.role not in VALUE_ROLES:
+                raise FloorplanError(
+                    f"{assignment.role!r} is not a supported element role"
+                )
+            if assignment.role == "value":
+                display_entities_by_element[assignment.element_id] = (
+                    assignment.entity_id,
+                )
+            else:
+                bindings.append(
+                    RoomBinding(
+                        entity_id=assignment.entity_id,
+                        area_ids=(assignment.element_id,)
+                        if assignment.role == "area"
+                        else (),
+                        glow_ids=(assignment.element_id,)
+                        if assignment.role == "glow"
+                        else (),
+                        value_ids=(),
+                        minimum=DEFAULT_MIN,
+                        comfort=DEFAULT_COMFORT,
+                        maximum=DEFAULT_MAX,
+                        cold_color=DEFAULT_COLD_COLOR,
+                        comfort_color=DEFAULT_COMFORT_COLOR,
+                        hot_color=DEFAULT_HOT_COLOR,
+                        unit=DEFAULT_UNIT,
+                    )
+                )
+            continue
+
+        if assignment.display_entity_ids and tag != "text":
+            raise FloorplanError(
+                f"Display sensors can only be assigned to text elements "
+                f"({assignment.element_id!r})"
+            )
+        if any(
+            not entity_id.startswith(("sensor.", "input_number."))
+            for entity_id in assignment.display_entity_ids
+        ):
+            raise FloorplanError(
+                "Display entities must be sensors or input_number entities"
+            )
+        if assignment.display_entity_ids:
+            display_entities_by_element[assignment.element_id] = (
+                assignment.display_entity_ids
+            )
+
+        if assignment.color_mode not in {"none", "fill", "fade"}:
+            raise FloorplanError("Color mode must be none, fill, or fade")
+        if assignment.color_mode == "none":
+            if assignment.color_entity_id is not None:
+                raise FloorplanError(
+                    "Choose fill or fade to use a color sensor"
+                )
+            continue
+        if assignment.color_entity_id is None:
+            raise FloorplanError("Choose a sensor to drive the element color")
+        if not assignment.color_entity_id.startswith(("sensor.", "input_number.")):
+            raise FloorplanError(
+                f"{assignment.color_entity_id!r} must be a sensor or input_number entity"
+            )
         bindings.append(
             RoomBinding(
-                entity_id=entity_id,
-                area_ids=tuple(roles["area"]),
-                glow_ids=tuple(roles["glow"]),
-                value_ids=tuple(roles["value"]),
+                entity_id=assignment.color_entity_id,
+                area_ids=(assignment.element_id,)
+                if assignment.color_mode == "fill"
+                else (),
+                glow_ids=(assignment.element_id,)
+                if assignment.color_mode == "fade"
+                else (),
+                value_ids=(),
                 minimum=DEFAULT_MIN,
                 comfort=DEFAULT_COMFORT,
                 maximum=DEFAULT_MAX,
@@ -333,7 +410,35 @@ def _bindings(
                 unit=DEFAULT_UNIT,
             )
         )
-    return tuple(bindings)
+
+    return tuple(bindings), display_entities_by_element
+
+
+def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
+    assignments: list[ElementAssignment] = []
+    for element in root.iter():
+        element_id = _element_id(element)
+        if element_id is None:
+            continue
+        display_entities = tuple(
+            entity_id
+            for entity_id in element.attrib.get(
+                "data-ha-display-entities", ""
+            ).split(",")
+            if entity_id
+        )
+        color_entity = element.attrib.get("data-ha-color-entity")
+        color_mode = element.attrib.get("data-ha-color-mode", "none")
+        if display_entities or color_entity or color_mode != "none":
+            assignments.append(
+                ElementAssignment(
+                    element_id=element_id,
+                    display_entity_ids=display_entities,
+                    color_entity_id=color_entity,
+                    color_mode=color_mode,
+                )
+            )
+    return tuple(assignments)
 
 
 class FloorplanRenderer:
@@ -369,7 +474,10 @@ class FloorplanRenderer:
             raise FloorplanError("SVG element IDs must be unique")
 
         self._source = source
-        self.bindings = _bindings(root, assignments)
+        self.assignments = assignments or _assignments_from_svg(root)
+        self.bindings, self.display_entities_by_element = _bindings(
+            root, self.assignments
+        )
         assignable_elements: list[AssignableElement] = []
 
         def find_assignable(
@@ -396,12 +504,51 @@ class FloorplanRenderer:
         find_assignable(root)
         self.assignable_elements = tuple(assignable_elements)
 
+    def configured_svg(self, assignments: tuple[ElementAssignment, ...]) -> bytes:
+        """Return an SVG with entity display and color choices embedded as metadata."""
+        try:
+            root = ET.fromstring(self._source)
+        except ET.ParseError as err:
+            raise FloorplanError(f"SVG is not valid XML: {err}") from err
+        _bindings(root, assignments)
+        elements_by_id = {
+            element_id: element
+            for element in root.iter()
+            if (element_id := _element_id(element)) is not None
+        }
+        for assignment in assignments:
+            element = elements_by_id[assignment.element_id]
+            if assignment.display_entity_ids:
+                element.set(
+                    "data-ha-display-entities",
+                    ",".join(assignment.display_entity_ids),
+                )
+            if assignment.color_entity_id is not None:
+                element.set("data-ha-color-entity", assignment.color_entity_id)
+                element.set("data-ha-color-mode", assignment.color_mode)
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
     @property
     def entity_ids(self) -> tuple[str, ...]:
         """Return all entities referenced by this floor plan."""
-        return tuple(dict.fromkeys(binding.entity_id for binding in self.bindings))
+        return tuple(
+            dict.fromkeys(
+                [
+                    *(binding.entity_id for binding in self.bindings),
+                    *(
+                        entity_id
+                        for entity_ids in self.display_entities_by_element.values()
+                        for entity_id in entity_ids
+                    ),
+                ]
+            )
+        )
 
-    def render(self, states: dict[str, str]) -> tuple[bytes, bytes]:
+    def render(
+        self,
+        states: dict[str, str],
+        display_values: dict[str, str] | None = None,
+    ) -> tuple[bytes, bytes]:
         """Return the updated SVG and its transparent PNG rendering."""
         try:
             root = ET.fromstring(self._source)
@@ -441,6 +588,14 @@ class FloorplanRenderer:
                 _set_glow(elements_by_id[element_id], gradient_id)
             for element_id in binding.value_ids:
                 _set_text(elements_by_id[element_id], display)
+
+        display_values = display_values or {}
+        for element_id, entity_ids in self.display_entities_by_element.items():
+            lines = tuple(
+                display_values.get(entity_id, f"{entity_id}: {states.get(entity_id, '—')}")
+                for entity_id in entity_ids
+            )
+            _set_text_lines(elements_by_id[element_id], lines)
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:
