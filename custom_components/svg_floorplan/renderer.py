@@ -18,6 +18,8 @@ from .const import (
     DEFAULT_HOT_COLOR,
     DEFAULT_MAX,
     DEFAULT_MIN,
+    DEFAULT_PURPLE_AT,
+    DEFAULT_PURPLE_COLOR,
     DEFAULT_UNIT,
     FONT_FILES,
     MAX_SVG_BYTES,
@@ -72,6 +74,9 @@ class RoomBinding:
     hot_color: str
     unit: str
     edge_fade_ids: tuple[str, ...] = ()
+    transparent_fade_ids: tuple[str, ...] = ()
+    purple_at: float = DEFAULT_PURPLE_AT
+    purple_color: str = DEFAULT_PURPLE_COLOR
 
 
 @dataclass(frozen=True)
@@ -134,13 +139,16 @@ def _interpolate_color(start: str, end: str, amount: float) -> str:
 def _temperature_color(value: float, binding: RoomBinding) -> str:
     if value <= binding.minimum:
         return binding.cold_color
-    if value >= binding.maximum:
-        return binding.hot_color
     if value <= binding.comfort:
         amount = (value - binding.minimum) / (binding.comfort - binding.minimum)
         return _interpolate_color(binding.cold_color, binding.comfort_color, amount)
-    amount = (value - binding.comfort) / (binding.maximum - binding.comfort)
-    return _interpolate_color(binding.comfort_color, binding.hot_color, amount)
+    if value <= binding.maximum:
+        amount = (value - binding.comfort) / (binding.maximum - binding.comfort)
+        return _interpolate_color(binding.comfort_color, binding.hot_color, amount)
+    if value >= binding.purple_at:
+        return binding.purple_color
+    amount = (value - binding.maximum) / (binding.purple_at - binding.maximum)
+    return _interpolate_color(binding.hot_color, binding.purple_color, amount)
 
 
 def _set_fill(element: ET.Element, color: str) -> None:
@@ -521,9 +529,14 @@ def _bindings(
         maximum = _parse_number(
             group.attrib.get("data-ha-max"), DEFAULT_MAX, "data-ha-max"
         )
-        if not minimum < comfort < maximum:
+        purple_at = _parse_number(
+            group.attrib.get("data-ha-purple-at"),
+            DEFAULT_PURPLE_AT,
+            "data-ha-purple-at",
+        )
+        if not minimum < comfort < maximum < purple_at:
             raise FloorplanError(
-                "Temperature color stops must satisfy min < comfort < max"
+                "Temperature color stops must satisfy min < comfort < max < purple"
             )
 
         bindings.append(
@@ -551,6 +564,12 @@ def _bindings(
                     "data-ha-color-hot",
                 ),
                 unit=group.attrib.get("data-ha-unit", DEFAULT_UNIT),
+                purple_at=purple_at,
+                purple_color=_parse_color(
+                    group.attrib.get("data-ha-color-purple"),
+                    DEFAULT_PURPLE_COLOR,
+                    "data-ha-color-purple",
+                ),
             )
         )
 
@@ -633,7 +652,12 @@ def _bindings(
                 assignment.display_entity_ids
             )
 
-        if assignment.color_mode not in {"none", "fill", "fade"}:
+        if assignment.color_mode not in {
+            "none",
+            "fill",
+            "fade",
+            "fade-transparent",
+        }:
             raise FloorplanError("Color mode must be none, fill, or fade")
         if assignment.color_mode == "none":
             if assignment.color_entity_id is not None:
@@ -656,6 +680,9 @@ def _bindings(
                 glow_ids=(),
                 edge_fade_ids=(assignment.element_id,)
                 if assignment.color_mode == "fade"
+                else (),
+                transparent_fade_ids=(assignment.element_id,)
+                if assignment.color_mode == "fade-transparent"
                 else (),
                 value_ids=(),
                 minimum=DEFAULT_MIN,
@@ -1065,7 +1092,11 @@ class FloorplanRenderer:
 
             for element_id in binding.area_ids:
                 _set_fill(elements_by_id[element_id], color)
-            for element_id in binding.edge_fade_ids:
+            transparent_fade_ids = set(binding.transparent_fade_ids)
+            for element_id in (
+                *binding.edge_fade_ids,
+                *binding.transparent_fade_ids,
+            ):
                 element = elements_by_id[element_id]
                 parent = parents.get(element)
                 if parent is None:
@@ -1075,7 +1106,12 @@ class FloorplanRenderer:
                 colored_shape = deepcopy(element)
                 colored_shape.attrib.pop("id", None)
                 colored_shape.attrib.pop("mask", None)
-                _set_fill(element, NEUTRAL_COLOR)
+                _set_fill(
+                    element,
+                    "none"
+                    if element_id in transparent_fade_ids
+                    else NEUTRAL_COLOR,
+                )
                 _set_fill(colored_shape, color)
                 mask_id = f"ha-edge-fade-{element_id}"
                 suffix = 2

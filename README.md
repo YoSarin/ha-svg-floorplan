@@ -93,12 +93,14 @@ to transparent at the edges.
 <g
   id="living-room"
   data-ha-entity="sensor.teplomer_obyvak_temperature"
-  data-ha-min="16"
-  data-ha-comfort="22"
-  data-ha-max="28"
+  data-ha-min="0"
+  data-ha-comfort="15"
+  data-ha-max="25"
+  data-ha-purple-at="35"
   data-ha-color-cold="#3B82F6"
-  data-ha-color-comfort="#22C55E"
+  data-ha-color-comfort="#F97316"
   data-ha-color-hot="#EF4444"
+  data-ha-color-purple="#A855F7"
   data-ha-unit="°C"
 >
   <rect id="living-room-area" data-ha-role="area"
@@ -144,18 +146,22 @@ not need to be written by hand:
 | `data-ha-display-entities` | none | Comma-separated entity IDs displayed on the element |
 | `data-ha-display-position` | `auto` | Placement for readings: `auto`, `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right` |
 | `data-ha-color-entity` | none | Entity whose numeric state controls this element's color |
-| `data-ha-color-mode` | none | `fill` for solid color or `fade` for sensor color fading to neutral gray along the element's edges |
+| `data-ha-color-mode` | none | `fill` for solid color, `fade` to blend to neutral gray along the edges, or `fade-transparent` to reveal the background at the edges |
 | `data-ha-neutral` | absent | `true` sets skipped elements to neutral gray |
 | `data-ha-device-ids` | none | Comma-separated Home Assistant device IDs selected for this element |
-| `data-ha-min` | `16` | Temperature at the cold-color endpoint |
-| `data-ha-comfort` | `22` | Temperature at the comfort-color midpoint |
-| `data-ha-max` | `28` | Temperature at the hot-color endpoint |
+| `data-ha-min` | `0` | Temperature at the blue-color endpoint |
+| `data-ha-comfort` | `15` | Temperature at the orange-color stop |
+| `data-ha-max` | `25` | Temperature at the red-color stop |
+| `data-ha-purple-at` | `35` | Temperature at and above which the color is purple |
 | `data-ha-color-cold` | `#3B82F6` | Color at/below the minimum |
-| `data-ha-color-comfort` | `#22C55E` | Color at the comfort point |
-| `data-ha-color-hot` | `#EF4444` | Color at/above the maximum |
+| `data-ha-color-comfort` | `#F97316` | Color at the orange stop |
+| `data-ha-color-hot` | `#EF4444` | Color at the red stop |
+| `data-ha-color-purple` | `#A855F7` | Color at/above the purple stop |
 | `data-ha-unit` | `°C` | Suffix appended to the displayed sensor value |
 
-Values between color stops are linearly interpolated. Unknown or non-numeric
+The default temperature scale runs from blue at 0 °C through orange at 15 °C,
+red at 25 °C, and purple at 35 °C and above. Values between color stops are
+linearly interpolated. Unknown or non-numeric
 sensor states are shown as `—` and use the neutral gray `#808080`.
 
 The [`examples/example_house.svg`](examples/example_house.svg) file shows a

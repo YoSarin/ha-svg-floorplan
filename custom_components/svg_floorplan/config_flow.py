@@ -33,6 +33,7 @@ _COLOR_MODES = [
     {"label": "Do not color this element", "value": "none"},
     {"label": "Solid color", "value": "fill"},
     {"label": "Fade at edges to neutral gray", "value": "fade"},
+    {"label": "Fade at edges to transparent", "value": "fade-transparent"},
 ]
 _DISPLAY_POSITIONS = [
     {"label": "Automatic (center rooms, edge of floor-plan backdrop)", "value": "auto"},

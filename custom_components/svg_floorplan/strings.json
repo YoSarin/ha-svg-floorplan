@@ -10,7 +10,7 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Set the first five reading positions below to control their order; selected entities not assigned a position follow afterward in the entity list order. Existing text is updated; readings on supported shapes are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color or fade at the edges to neutral gray. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Set the first five reading positions below to control their order; selected entities not assigned a position follow afterward in the entity list order. Existing text is updated; readings on supported shapes are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color, fade at the edges to neutral gray, or fade at the edges to transparent. Use transparent fade for an outer/background shape and neutral fade for foreground shapes. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
         "data": {
           "display_entities": "Entities to display on this element",
           "display_order_1": "Reading order — 1st",
@@ -43,7 +43,7 @@
       "unsupported_entity": "The assigned entity must be a sensor or input number.",
       "missing_role_id": "Every element with a Home Assistant role must have an SVG ID.",
       "missing_role": "An entity group must contain an element with the area, value, or glow role.",
-      "invalid_temperature_range": "Temperature thresholds must be numbers in increasing order: minimum, comfort, maximum.",
+      "invalid_temperature_range": "Temperature thresholds must be numbers in increasing order: minimum, orange, red, purple.",
       "invalid_color": "Temperature colors must use six-digit hex values, for example #22C55E.",
       "duplicate_ids": "The SVG contains duplicate element IDs. Make each SVG ID unique.",
       "render_failed": "The SVG is valid, but Home Assistant could not render it as a PNG. Check the SVG features and bundled renderer logs.",
@@ -55,7 +55,7 @@
       "configure_or_skip_required": "Choose displayed entities or configure a color entity, or turn on “Skip this element”.",
       "display_sensors_need_supported_element": "Sensor readings can be displayed on text, rectangle, circle, or ellipse elements.",
       "unsupported_display_entity": "Displayed entities must be sensors or input numbers.",
-      "invalid_color_mode": "Choose no color, solid color, or fade at the edges to neutral gray.",
+      "invalid_color_mode": "Choose no color, solid color, fade to neutral gray, or fade to transparent.",
       "invalid_display_position": "Choose an automatic, centered, or corner position for the displayed readings.",
       "device_has_no_sensors": "The selected devices have no enabled sensor or input number entities to assign. Choose other devices."
     },
