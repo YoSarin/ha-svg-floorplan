@@ -23,6 +23,7 @@ _renderer_module = importlib.import_module(
 FloorplanError = _renderer_module.FloorplanError
 FloorplanRenderer = _renderer_module.FloorplanRenderer
 ElementAssignment = _renderer_module.ElementAssignment
+order_display_entities = _renderer_module.order_display_entities
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -227,6 +228,30 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
     ] == ["22 °C", "45 %"]
 
 
+def test_explicit_display_order_precedes_remaining_selected_entities() -> None:
+    assert order_display_entities(
+        (
+            "sensor.temperature",
+            "sensor.humidity",
+            "sensor.pressure",
+            "sensor.battery",
+        ),
+        ("sensor.humidity", "sensor.temperature", "sensor.humidity"),
+    ) == (
+        "sensor.humidity",
+        "sensor.temperature",
+        "sensor.pressure",
+        "sensor.battery",
+    )
+
+
+def test_display_order_ignores_entities_not_selected_for_display() -> None:
+    assert order_display_entities(
+        ("sensor.temperature", "sensor.pressure"),
+        ("sensor.humidity", "sensor.pressure"),
+    ) == ("sensor.pressure", "sensor.temperature")
+
+
 def test_auto_places_text_at_edge_of_canvas_sized_shape(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80">
@@ -314,6 +339,33 @@ def test_attic_text_renders_above_later_svg_layers(tmp_path: Path) -> None:
     assert max(image.crop((190, 30, 220, 50)).getchannel("R").get_flattened_data()) > 100
 
 
+def test_example_house_attic_renders_text_inside_transformed_path(
+    tmp_path: Path,
+) -> None:
+    example = Path(__file__).parents[1] / "examples" / "example_house.svg"
+    renderer = FloorplanRenderer(
+        example,
+        (ElementAssignment("rect7", display_entity_ids=("sensor.attic",)),),
+    )
+    svg, png = renderer.render(
+        {"sensor.attic": "22"},
+        {"sensor.attic": "22 °C"},
+    )
+    baseline = FloorplanRenderer(example).render({})[1]
+    root = _renderer_module.ET.fromstring(svg)
+    overlay = next(element for element in root.iter() if element.tag.endswith("text"))
+    assert [span.text for span in overlay if span.tag.endswith("tspan")] == ["22 °C"]
+    assert float(overlay.attrib["x"]) == pytest.approx(4.54276)
+    assert float(overlay.attrib["y"]) == pytest.approx(-26.142)
+
+    rendered_image = Image.open(BytesIO(png)).convert("RGB")
+    baseline_image = Image.open(BytesIO(baseline)).convert("RGB")
+    attic = (700, 100, 850, 200)
+    assert ImageChops.difference(
+        rendered_image.crop(attic), baseline_image.crop(attic)
+    ).getbbox()
+
+
 def test_fade_mode_follows_shape_edges_and_uses_neutral_underlay(
     tmp_path: Path,
 ) -> None:
@@ -376,6 +428,42 @@ def test_scales_generated_text_to_fit_shape(tmp_path: Path) -> None:
 
     assert font_size < 20 * 0.14
     assert font_size * 1.2 <= 20 * 0.84
+
+
+def test_generated_text_uses_consistent_size_across_shapes(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 180">
+  <rect id="room" x="10" y="10" width="30" height="20"/>
+  <rect id="backdrop" width="400" height="180"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (
+            ElementAssignment("room", display_entity_ids=("sensor.room",)),
+            ElementAssignment("backdrop", display_entity_ids=("sensor.outside",)),
+        ),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.room": "22", "sensor.outside": "3.25"},
+        {
+            "sensor.room": "22 °C",
+            "sensor.outside": "3.25 °C",
+        },
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    font_sizes = [
+        float(element.attrib["font-size"])
+        for element in root.iter()
+        if element.tag.endswith("text")
+    ]
+
+    assert len(font_sizes) == 2
+    assert font_sizes[0] == pytest.approx(font_sizes[1])
+    assert font_sizes[0] == pytest.approx(180 * 0.04)
 
 
 def test_configured_svg_reloads_sensor_choices_without_config_flow(

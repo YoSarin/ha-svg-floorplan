@@ -433,6 +433,24 @@ def _text_width_units(text: str) -> float:
     )
 
 
+def order_display_entities(
+    selected: tuple[str, ...], requested_order: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Apply explicit reading positions, then preserve order for remaining entities."""
+    selected_ids = tuple(dict.fromkeys(selected))
+    ordered_ids = list(
+        dict.fromkeys(
+            entity_id
+            for entity_id in requested_order
+            if entity_id in selected_ids
+        )
+    )
+    ordered_ids.extend(
+        entity_id for entity_id in selected_ids if entity_id not in ordered_ids
+    )
+    return tuple(ordered_ids)
+
+
 def _normalize_physical_dimensions(root: ET.Element) -> None:
     """Convert physical SVG sizes to CSS pixels for rasterizer compatibility."""
     for dimension in ("width", "height"):
@@ -723,6 +741,20 @@ def _add_text_overlay(
     )
 
     view_box = root.attrib.get("viewBox", "").replace(",", " ").split()
+    canvas_font_size = min(width, height) * 0.14
+    if len(view_box) == 4:
+        try:
+            canvas_width, canvas_height = map(float, view_box[2:])
+        except ValueError:
+            pass
+        else:
+            if (
+                math.isfinite(canvas_width)
+                and math.isfinite(canvas_height)
+                and canvas_width > 0
+                and canvas_height > 0
+            ):
+                canvas_font_size = min(canvas_width, canvas_height) * 0.04
     if position == "auto":
         if len(view_box) == 4:
             try:
@@ -754,7 +786,7 @@ def _add_text_overlay(
         default=1.0,
     )
     font_size = min(
-        min(width, height) * 0.14,
+        canvas_font_size,
         inner_height / (1.2 * max(len(lines), 1)),
         inner_width / text_width,
     )

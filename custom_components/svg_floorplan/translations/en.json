@@ -10,9 +10,14 @@
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Their selected order is the reading order; to reorder, deselect and reselect them in the order you want. Existing text is updated; readings on supported shapes are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color or fade at the edges to neutral gray. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Set the first five reading positions below to control their order; selected entities not assigned a position follow afterward in the entity list order. Existing text is updated; readings on supported shapes are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color or fade at the edges to neutral gray. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
         "data": {
           "display_entities": "Entities to display on this element",
+          "display_order_1": "Reading order — 1st",
+          "display_order_2": "Reading order — 2nd",
+          "display_order_3": "Reading order — 3rd",
+          "display_order_4": "Reading order — 4th",
+          "display_order_5": "Reading order — 5th",
           "display_position": "Where to place the readings",
           "color_entity": "Entity whose value controls the color",
           "color_mode": "Color or fade this element",
