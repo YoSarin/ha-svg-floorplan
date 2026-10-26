@@ -981,49 +981,6 @@ class FloorplanRenderer:
         find_assignable(root)
         self.assignable_elements = tuple(assignable_elements)
 
-    def configured_svg(self, assignments: tuple[ElementAssignment, ...]) -> bytes:
-        """Return an SVG with entity display and color choices embedded as metadata."""
-        try:
-            root = ET.fromstring(self._source)
-        except ET.ParseError as err:
-            raise FloorplanError(f"SVG is not valid XML: {err}") from err
-        _bindings(root, assignments)
-        elements_by_id = {
-            element_id: element
-            for element in root.iter()
-            if (element_id := _element_id(element)) is not None
-        }
-        for assignment in assignments:
-            element = elements_by_id[assignment.element_id]
-            for attribute in (
-                "data-ha-display-entities",
-                "data-ha-display-position",
-                "data-ha-color-entity",
-                "data-ha-color-mode",
-                "data-ha-neutral",
-                "data-ha-device-id",
-                "data-ha-device-ids",
-            ):
-                element.attrib.pop(attribute, None)
-            if assignment.display_entity_ids:
-                element.set(
-                    "data-ha-display-entities",
-                    ",".join(assignment.display_entity_ids),
-                )
-                element.set(
-                    "data-ha-display-position", assignment.display_position
-                )
-            if assignment.color_entity_id is not None:
-                element.set("data-ha-color-entity", assignment.color_entity_id)
-                element.set("data-ha-color-mode", assignment.color_mode)
-            if assignment.neutralize:
-                element.set("data-ha-neutral", "true")
-            else:
-                element.attrib.pop("data-ha-neutral", None)
-            if assignment.device_ids:
-                element.set("data-ha-device-ids", ",".join(assignment.device_ids))
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
     @property
     def entity_ids(self) -> tuple[str, ...]:
         """Return all entities referenced by this floor plan."""

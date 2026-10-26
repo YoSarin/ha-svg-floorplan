@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from homeassistant.components.image import ImageEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import slugify
 
 from . import SvgFloorplanConfigEntry, update_signal
+from .const import CONF_CONFIGURATION_NAME, CONF_SOURCE_SVG_PATH, CONF_SVG_PATH
 
 
 async def async_setup_entry(
@@ -28,16 +31,27 @@ async def async_setup_entry(
 class FloorplanImage(ImageEntity):
     """An SVG or PNG image of a rendered floor plan."""
 
-    _attr_has_entity_name = True
-
     def __init__(
         self, hass: HomeAssistant, entry: SvgFloorplanConfigEntry, image_format: str
     ) -> None:
         super().__init__(hass)
         self._entry = entry
         self._image_format = image_format
-        self._attr_unique_id = f"{entry.entry_id}_{image_format}"
-        self._attr_name = f"{entry.title} {image_format.upper()}"
+        source_path = entry.data.get(
+            CONF_SOURCE_SVG_PATH, entry.data[CONF_SVG_PATH]
+        )
+        svg_name = Path(source_path).stem
+        configuration_name = entry.data.get(CONF_CONFIGURATION_NAME, entry.title)
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{configuration_name}_{image_format}"
+        )
+        self._attr_name = (
+            f"{svg_name} {configuration_name} {image_format.upper()}"
+        )
+        self._attr_suggested_object_id = (
+            f"floorplan_{slugify(svg_name, separator='_')}_"
+            f"{slugify(configuration_name, separator='_')}_{image_format}"
+        )
         self._attr_entity_registry_enabled_default = True
         self._attr_content_type = (
             "image/svg+xml" if image_format == "svg" else "image/png"

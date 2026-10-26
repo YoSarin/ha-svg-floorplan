@@ -15,11 +15,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
+    CONF_CONFIGURATION_NAME,
     CONF_ELEMENT_BINDINGS,
     CONF_SVG_PATH,
     DOMAIN,
     MAX_SVG_BYTES,
 )
+from .configuration import load_configuration
 from .renderer import ElementAssignment, FloorplanError, FloorplanRenderer
 
 _LOGGER = logging.getLogger(__name__)
@@ -104,21 +106,31 @@ async def async_setup_entry(
 ) -> bool:
     """Set up an SVG floor plan from a config entry."""
     try:
-        path = _source_path(hass, entry.data[CONF_SVG_PATH])
-        assignments = tuple(
-            ElementAssignment(
-                element_id=assignment["element_id"],
-                entity_id=assignment.get("entity_id"),
-                role=assignment.get("role"),
-                display_entity_ids=tuple(assignment.get("display_entity_ids", ())),
-                display_position=assignment.get("display_position", "auto"),
-                color_entity_id=assignment.get("color_entity_id"),
-                color_mode=assignment.get("color_mode", "none"),
-                neutralize=assignment.get("neutralize", False),
-                device_ids=tuple(assignment.get("device_ids", ())),
+        configuration_name = entry.data.get(CONF_CONFIGURATION_NAME)
+        if configuration_name:
+            path = _source_path(hass, entry.data[CONF_SVG_PATH])
+            assignments = await hass.async_add_executor_job(
+                load_configuration, path, configuration_name
             )
-            for assignment in entry.data.get(CONF_ELEMENT_BINDINGS, [])
-        )
+        else:
+            # Entries created before JSON sidecars used a configured SVG copy.
+            path = _source_path(hass, entry.data[CONF_SVG_PATH])
+            assignments = tuple(
+                ElementAssignment(
+                    element_id=assignment["element_id"],
+                    entity_id=assignment.get("entity_id"),
+                    role=assignment.get("role"),
+                    display_entity_ids=tuple(
+                        assignment.get("display_entity_ids", ())
+                    ),
+                    display_position=assignment.get("display_position", "auto"),
+                    color_entity_id=assignment.get("color_entity_id"),
+                    color_mode=assignment.get("color_mode", "none"),
+                    neutralize=assignment.get("neutralize", False),
+                    device_ids=tuple(assignment.get("device_ids", ())),
+                )
+                for assignment in entry.data.get(CONF_ELEMENT_BINDINGS, [])
+            )
         renderer = await hass.async_add_executor_job(
             FloorplanRenderer, path, assignments
         )

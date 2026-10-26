@@ -10,15 +10,16 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+from homeassistant.util import slugify
 
 from . import _source_path
+from .configuration import load_configuration, save_configuration
 from .const import (
+    CONF_CONFIGURATION_NAME,
     CONF_DEVICE_ID,
-    CONF_ELEMENT_BINDINGS,
     CONF_SOURCE_SVG_PATH,
     CONF_SVG_PATH,
     DOMAIN,
-    MAX_SVG_BYTES,
 )
 from .renderer import (
     ElementAssignment,
@@ -43,43 +44,6 @@ _DISPLAY_POSITIONS = [
 ]
 
 
-def _create_configured_copy(
-    source_path: Path, assignments: tuple[ElementAssignment, ...]
-) -> Path:
-    """Write and validate a configured SVG beside its original."""
-    source_renderer = FloorplanRenderer(source_path, assignments)
-    source_renderer.render({})
-    configured_svg = source_renderer.configured_svg(assignments)
-    if len(configured_svg) > MAX_SVG_BYTES:
-        raise FloorplanError(
-            f"Configured SVG exceeds the {MAX_SVG_BYTES} byte size limit"
-        )
-
-    output_path = source_path.with_name(f"{source_path.stem}.configured.svg")
-    suffix = 2
-    while True:
-        try:
-            with output_path.open("xb") as configured_file:
-                configured_file.write(configured_svg)
-            break
-        except FileExistsError:
-            output_path = source_path.with_name(
-                f"{source_path.stem}.configured-{suffix}.svg"
-            )
-            suffix += 1
-        except OSError:
-            output_path.unlink(missing_ok=True)
-            raise
-
-    try:
-        configured_renderer = FloorplanRenderer(output_path)
-        configured_renderer.render({})
-    except (FloorplanError, OSError):
-        output_path.unlink(missing_ok=True)
-        raise
-    return output_path
-
-
 def _error_key(error: FloorplanError) -> str:
     """Map validation failures to actionable config-flow messages."""
     message = str(error)
@@ -95,6 +59,8 @@ def _error_key(error: FloorplanError) -> str:
         return "malformed_xml"
     if message.startswith("The root XML element"):
         return "not_svg"
+    if "configuration JSON" in message or "Configuration " in message:
+        return "invalid_configuration_json"
     if message.startswith("Could not rasterize"):
         return "render_failed"
     if "must be a sensor or input_number entity" in message:
@@ -136,15 +102,37 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         details = ""
         if user_input is not None:
-            path = user_input[CONF_SVG_PATH].strip()
+            path = user_input[CONF_SVG_PATH].strip().replace("\\", "/")
+            configuration_name = user_input[CONF_CONFIGURATION_NAME].strip()
+            if not configuration_name or not slugify(
+                configuration_name, separator="_"
+            ):
+                errors["base"] = "invalid_configuration_name"
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(CONF_SVG_PATH): str,
+                            vol.Required(CONF_CONFIGURATION_NAME): str,
+                        }
+                    ),
+                    errors=errors,
+                    description_placeholders={"details": details},
+                )
+            self._configuration_name = configuration_name
             try:
+                await self.async_set_unique_id(
+                    f"{path}:{slugify(configuration_name, separator='_')}"
+                )
+                self._abort_if_unique_id_configured()
                 source_path = _source_path(self.hass, path)
                 renderer = await self.hass.async_add_executor_job(
                     FloorplanRenderer, source_path
                 )
                 if renderer.entity_ids:
                     await self.hass.async_add_executor_job(renderer.render, {})
-                    return await self._create_entry(path, (), source_path=path)
+                    self._pending_assignments = []
+                    return await self._create_entry(path, source_path=path)
             except (FloorplanError, OSError) as err:
                 _LOGGER.debug("Invalid SVG floor plan %s: %s", path, err)
                 errors["base"] = (
@@ -171,6 +159,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_SVG_PATH): str,
+                    vol.Required(CONF_CONFIGURATION_NAME): str,
                 }
             ),
             errors=errors,
@@ -187,14 +176,26 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         source_path = entry.data.get(
             CONF_SOURCE_SVG_PATH, entry.data[CONF_SVG_PATH]
         )
+        self._configuration_name = entry.data.get(
+            CONF_CONFIGURATION_NAME, "default"
+        )
         try:
+            source = _source_path(self.hass, source_path)
             renderer = await self.hass.async_add_executor_job(
-                FloorplanRenderer, _source_path(self.hass, source_path)
+                FloorplanRenderer, source
             )
-            active_renderer = await self.hass.async_add_executor_job(
-                FloorplanRenderer,
-                _source_path(self.hass, entry.data[CONF_SVG_PATH]),
-            )
+            if CONF_CONFIGURATION_NAME in entry.data:
+                existing_assignments = await self.hass.async_add_executor_job(
+                    load_configuration, source, self._configuration_name
+                )
+                active_renderer = await self.hass.async_add_executor_job(
+                    FloorplanRenderer, source, existing_assignments
+                )
+            else:
+                active_renderer = await self.hass.async_add_executor_job(
+                    FloorplanRenderer,
+                    _source_path(self.hass, entry.data[CONF_SVG_PATH]),
+                )
             if not renderer.assignable_elements:
                 return self.async_abort(
                     reason="reconfigure_error",
@@ -384,10 +385,17 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         assignments,
                     )
                     await self.hass.async_add_executor_job(renderer.render, {})
-                    configured_path = await self.hass.async_add_executor_job(
-                        _create_configured_copy, source_path, assignments
+                    await self.hass.async_add_executor_job(
+                        save_configuration,
+                        source_path,
+                        self._configuration_name,
+                        assignments,
                     )
-                    _LOGGER.info("Saved configured SVG floor plan to %s", configured_path)
+                    _LOGGER.info(
+                        "Saved SVG floor plan configuration %s for %s",
+                        self._configuration_name,
+                        source_path,
+                    )
                 except (FloorplanError, OSError) as err:
                     _LOGGER.error(
                         "Unable to configure SVG floor plan %s: %s",
@@ -410,13 +418,15 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         str(err) if isinstance(err, FloorplanError) else "",
                     )
                 if hasattr(self, "_reconfigure_entry"):
-                    return await self._update_reconfigured_entry(configured_path)
+                    return await self._update_reconfigured_entry(source_path)
                 return await self._create_entry(
-                    configured_path.relative_to(
+                    source_path.relative_to(
                         Path(self.hass.config.config_dir).resolve()
                     ).as_posix(),
-                    (),
-                    title=Path(self._pending_path).stem,
+                    title=(
+                        f"{Path(self._pending_path).stem} "
+                        f"{self._configuration_name}"
+                    ),
                     source_path=self._pending_path,
                 )
 
@@ -547,40 +557,44 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _create_entry(
         self,
         path: str,
-        assignments: tuple[dict[str, Any], ...],
         title: str | None = None,
         source_path: str | None = None,
     ) -> config_entries.ConfigFlowResult:
-        await self.async_set_unique_id(path)
+        await self.async_set_unique_id(
+            f"{source_path or path}:"
+            f"{slugify(self._configuration_name, separator='_')}"
+        )
         self._abort_if_unique_id_configured()
+        svg_path = _source_path(self.hass, source_path or path)
+        assignments = self._build_assignments()
+        await self.hass.async_add_executor_job(
+            save_configuration,
+            svg_path,
+            self._configuration_name,
+            assignments,
+        )
         data = {
             CONF_SVG_PATH: path,
             CONF_SOURCE_SVG_PATH: source_path or path,
-            CONF_ELEMENT_BINDINGS: list(assignments),
+            CONF_CONFIGURATION_NAME: self._configuration_name,
         }
         return self.async_create_entry(
-            title=title or Path(path).stem,
+            title=title or f"{Path(path).stem} {self._configuration_name}",
             data=data,
         )
 
     async def _update_reconfigured_entry(
-        self, configured_path: Path
+        self, source_path: Path
     ) -> config_entries.ConfigFlowResult:
-        """Save the configured SVG and reload the existing entry."""
+        """Save the JSON configuration and reload the existing entry."""
         entry = self._reconfigure_entry
-        next_source_path = self._pending_path
-        current_source_path = entry.data.get(
-            CONF_SOURCE_SVG_PATH, entry.data[CONF_SVG_PATH]
-        )
-        configured_relative_path = configured_path.relative_to(
+        source_relative_path = source_path.relative_to(
             Path(self.hass.config.config_dir).resolve()
         ).as_posix()
-        if current_source_path == entry.data[CONF_SVG_PATH]:
-            next_source_path = configured_relative_path
         data = {
             **entry.data,
-            CONF_SVG_PATH: configured_relative_path,
-            CONF_SOURCE_SVG_PATH: next_source_path,
-            CONF_ELEMENT_BINDINGS: [],
+            CONF_SVG_PATH: source_relative_path,
+            CONF_SOURCE_SVG_PATH: source_relative_path,
+            CONF_CONFIGURATION_NAME: self._configuration_name,
         }
         return self.async_update_reload_and_abort(entry, data=data)

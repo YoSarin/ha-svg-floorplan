@@ -3,14 +3,15 @@
     "step": {
       "user": {
         "title": "Add an SVG floor plan",
-        "description": "Enter the path to an SVG file under the Home Assistant configuration directory. {details}",
+        "description": "Enter the path to an SVG file under the Home Assistant configuration directory and a name for this output configuration. Add the same SVG again with another name to create an independent image pair. {details}",
         "data": {
-          "svg_path": "Relative SVG path (for example floorplans/house.svg)"
+          "svg_path": "Relative SVG path (for example floorplans/house.svg)",
+          "configuration_name": "Configuration name (for example temperature)"
         }
       },
       "assign": {
         "title": "Element {position}: {element_name}",
-        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Reorder selected entities in the list to control their reading order. Existing text is updated; readings on supported shapes are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color, fade at the edges to neutral gray, or fade at the edges to transparent. Use transparent fade for an outer/background shape and neutral fade for foreground shapes. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, a configured SVG copy is saved beside the original and stores these choices for reuse. {details}",
+        "description": "Configure SVG element {element_id} (type: <{tag}>).\n\nChoose which entities from this element's devices to display here. All available entities are selected by default. Reorder selected entities in the list to control their reading order. Existing text is updated; readings on supported shapes are added as text showing just the values and units. Automatic placement centers readings in room shapes and puts readings for a floor-plan-sized background near its top-left edge.\n\nChoose an entity from the same devices to control this element's color. A temperature entity is selected by default when available; its numeric state is mapped to the color scale. Choose solid color, fade at the edges to neutral gray, or fade at the edges to transparent. Use transparent fade for an outer/background shape and neutral fade for foreground shapes. The displayed entities and the color entity can differ.\n\nSelect “Skip this element” to give it a neutral gray fill or text color. When setup is complete, these choices are saved to the SVG's JSON sidecar without changing the source image. {details}",
         "data": {
           "display_entities": "Entities to display on this element",
           "display_position": "Where to place the readings",
@@ -29,6 +30,8 @@
     },
     "error": {
       "invalid_path": "Enter a relative .svg path inside the Home Assistant configuration directory.",
+      "invalid_configuration_name": "Enter a configuration name containing at least one letter or number.",
+      "invalid_configuration_json": "The SVG's JSON sidecar is invalid or unreadable. Correct or restore the file before continuing.",
       "file_not_found": "The SVG file was not found. Check the path and spelling.",
       "file_read_error": "The SVG file could not be read. Check the file permissions.",
       "file_too_large": "The SVG exceeds the 2 MB size limit.",
@@ -55,7 +58,7 @@
       "device_has_no_sensors": "The selected devices have no enabled sensor or input number entities to assign. Choose other devices."
     },
     "abort": {
-      "already_configured": "This SVG file is already configured.",
+      "already_configured": "This SVG and configuration name are already configured.",
       "reconfigure_error": "The floor plan could not be reconfigured: {details}"
     }
   }

@@ -1,7 +1,7 @@
 # SVG Floorplan Image
 
 A Home Assistant custom integration that reads a user-provided SVG floor plan,
-updates marked elements from Home Assistant entities, and exposes the result as
+updates configured elements from Home Assistant entities, and exposes the result as
 SVG and PNG image entities.
 
 The SVG is configuration, not integration-owned content. The repository includes
@@ -22,10 +22,10 @@ The transparent parts of the bitmap allow the independently colored shapes to
 show through. The bitmap can be exported from a drawing or floor-plan tool as a
 transparent PNG and placed in the SVG as its background.
 
-During setup, choose the device that provides the entities, then configure
-each named shape: select values to display, choose an entity for its color, or
-skip it to use neutral gray. The integration creates a configured SVG copy;
-the source SVG remains unchanged.
+During setup, name an output configuration, choose the device that provides
+the entities, then configure each named shape: select values to display, choose
+an entity for its color, or skip it to use neutral gray. Settings are stored in
+a JSON sidecar; the source SVG remains unchanged.
 
 ## Install
 
@@ -49,7 +49,10 @@ no system fonts installed.
 2. In **Settings → Devices & services**, add **SVG Floorplan Image**.
 3. Enter the SVG path relative to the configuration directory:
    `floorplans/house.svg`.
-4. The setup flow walks through identified shapes and text elements by their
+4. Enter a name for this output configuration (for example, `temperature`).
+   Repeat the add-integration flow with the same SVG and a different name to
+   create another independent image pair, such as a `humidity` view.
+5. The setup flow walks through identified shapes and text elements by their
    SVG editor labels or IDs. It does not require pre-authored Home Assistant
    metadata. For each element, choose one or more Home Assistant devices; their
    sensor and input number entities are then offered for assignment. Choose one
@@ -63,19 +66,21 @@ no system fonts installed.
    through the color scale; fading to neutral gray along the shape edges or
    leaving the element uncolored are also available. Skipping an element gives
    its shape a neutral gray fill or its text a neutral gray foreground.
-   Setup saves a configured copy beside the original (for example
-   `house.configured.svg`) with reusable sensor metadata embedded in the SVG.
-5. Restart or reload the integration after changing the source SVG.
+   Setup saves the assignments in a JSON sidecar beside the SVG (for example,
+   `floorplans/house.json`) without writing Home Assistant configuration into
+   the SVG.
+6. Restart or reload the integration after changing the source SVG.
 
 To change assignments later, open the integration entry in **Settings →
 Devices & services**, use its menu, and select **Reconfigure**. The current
-assignments are preselected where possible; reconfiguration writes an updated
-configured SVG and reloads the entry.
+assignments are preselected where possible; reconfiguration updates that
+named configuration in the JSON sidecar and reloads the entry.
 
-The integration creates two image entities per floor plan. Each is named with
-the floor-plan title and format (for example, `House SVG` and `House PNG`), so
-multiple floor plans are distinguishable in entity pickers. Use the PNG image
-entity with the Home Assistant Companion app's Android Picture widget.
+Each named configuration creates SVG and PNG entities using the pattern
+`image.floorplan_{svgName}_{configurationName}_{fileExtension}` (for example,
+`image.floorplan_house_temperature_png` and
+`image.floorplan_house_humidity_png`). Use the PNG image entity with the Home
+Assistant Companion app's Android Picture widget.
 
 ## Optional hand-authored SVG metadata
 
@@ -116,7 +121,7 @@ The room metadata attributes are optional except `data-ha-entity`; omitted
 values use the defaults below. Colors must be six-digit hex colors. The
 integration updates all marked area and value elements within a room group.
 
-## Setup-generated SVG metadata
+## JSON configuration
 
 During setup, assignable elements need an SVG `id`; useful editor labels are
 recommended so the flow can identify each element. Text elements, rectangles,
@@ -137,27 +142,47 @@ neutral gray.
 The flow uses labels from SVG editors such as Inkscape, falling back to the
 parent layer label and then the SVG ID.
 
-Assignments are embedded in the configured SVG, so the file can be reused
-without repeating setup. The flow manages these attributes; they generally do
-not need to be written by hand:
+The sidecar JSON stores configurations by name, with an assignment list for
+each SVG element. Adding another configuration to the same SVG preserves
+existing configurations. For example, `floorplans/house.json` has this shape:
 
-| Attribute | Default | Meaning |
-| --- | --- | --- |
-| `data-ha-display-entities` | none | Comma-separated entity IDs displayed on the element |
-| `data-ha-display-position` | `auto` | Placement for readings: `auto`, `center`, `top-left`, `top-right`, `bottom-left`, or `bottom-right` |
-| `data-ha-color-entity` | none | Entity whose numeric state controls this element's color |
-| `data-ha-color-mode` | none | `fill` for solid color, `fade` to blend to neutral gray along the edges, or `fade-transparent` to reveal the background at the edges |
-| `data-ha-neutral` | absent | `true` sets skipped elements to neutral gray |
-| `data-ha-device-ids` | none | Comma-separated Home Assistant device IDs selected for this element |
-| `data-ha-min` | `0` | Temperature at the blue-color endpoint |
-| `data-ha-comfort` | `15` | Temperature at the orange-color stop |
-| `data-ha-max` | `25` | Temperature at the red-color stop |
-| `data-ha-purple-at` | `35` | Temperature at and above which the color is purple |
-| `data-ha-color-cold` | `#3B82F6` | Color at/below the minimum |
-| `data-ha-color-comfort` | `#F97316` | Color at the orange stop |
-| `data-ha-color-hot` | `#EF4444` | Color at the red stop |
-| `data-ha-color-purple` | `#A855F7` | Color at/above the purple stop |
-| `data-ha-unit` | `°C` | Suffix appended to the displayed sensor value |
+```json
+{
+  "version": 1,
+  "configurations": {
+    "temperature": {
+      "assignments": [
+        {
+          "element_id": "living-room",
+          "display_entity_ids": ["sensor.living_room_temperature"],
+          "display_position": "auto",
+          "color_entity_id": "sensor.living_room_temperature",
+          "color_mode": "fill",
+          "neutralize": false,
+          "device_ids": []
+        }
+      ]
+    },
+    "humidity": {
+      "assignments": [
+        {
+          "element_id": "living-room",
+          "display_entity_ids": ["sensor.living_room_humidity"],
+          "display_position": "auto",
+          "color_entity_id": "sensor.living_room_humidity",
+          "color_mode": "fill",
+          "neutralize": false,
+          "device_ids": []
+        }
+      ]
+    }
+  }
+}
+```
+
+The flow writes and validates this file. Do not add configuration metadata to
+the SVG; legacy hand-authored SVG metadata remains supported for existing
+setups.
 
 The default temperature scale runs from blue at 0 °C through orange at 15 °C,
 red at 25 °C, and purple at 35 °C and above. Values between color stops are

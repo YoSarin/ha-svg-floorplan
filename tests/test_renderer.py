@@ -23,6 +23,11 @@ _renderer_module = importlib.import_module(
 FloorplanError = _renderer_module.FloorplanError
 FloorplanRenderer = _renderer_module.FloorplanRenderer
 ElementAssignment = _renderer_module.ElementAssignment
+_configuration_module = importlib.import_module(
+    "custom_components.svg_floorplan.configuration"
+)
+load_configuration = _configuration_module.load_configuration
+save_configuration = _configuration_module.save_configuration
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -491,51 +496,66 @@ def test_generated_text_uses_consistent_size_across_shapes(tmp_path: Path) -> No
     assert font_sizes[0] == pytest.approx(180 * 0.04)
 
 
-def test_configured_svg_reloads_sensor_choices_without_config_flow(
+def test_json_sidecar_stores_multiple_independent_configurations(
     tmp_path: Path,
 ) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect id="room" width="100" height="100"/>
+  <rect id="humidity" width="50" height="50"/>
 </svg>
 """
     source_path = tmp_path / "floorplan.svg"
     source_path.write_text(source, encoding="utf-8")
-    assignments = (
+    temperature_assignments = (
         ElementAssignment(
             "room",
-            display_entity_ids=("sensor.temperature", "sensor.humidity"),
+            display_entity_ids=("sensor.temperature",),
             display_position="top-right",
             color_entity_id="sensor.temperature",
             color_mode="fade",
         ),
     )
-
-    configured_path = tmp_path / "floorplan.configured.svg"
-    configured_path.write_bytes(
-        FloorplanRenderer(source_path).configured_svg(assignments)
+    humidity_assignments = (
+        ElementAssignment(
+            "humidity",
+            display_entity_ids=("sensor.humidity",),
+            color_entity_id="sensor.humidity",
+            color_mode="fill",
+        ),
     )
-    renderer = FloorplanRenderer(configured_path)
-    svg, _ = renderer.render(
+    source_bytes = source_path.read_bytes()
+    save_configuration(source_path, "temperature", temperature_assignments)
+    save_configuration(source_path, "humidity", humidity_assignments)
+
+    temperature = FloorplanRenderer(
+        source_path, load_configuration(source_path, "temperature")
+    )
+    temperature_svg, _ = temperature.render(
         {"sensor.temperature": "22", "sensor.humidity": "45"},
-        {
-            "sensor.temperature": "22 °C",
-            "sensor.humidity": "45 %",
-        },
+        {"sensor.temperature": "22 °C", "sensor.humidity": "45 %"},
+    )
+    humidity = FloorplanRenderer(
+        source_path, load_configuration(source_path, "humidity")
+    )
+    humidity_svg, _ = humidity.render(
+        {"sensor.temperature": "22", "sensor.humidity": "45"},
+        {"sensor.temperature": "22 °C", "sensor.humidity": "45 %"},
     )
 
-    assert set(renderer.entity_ids) == {
-        "sensor.temperature",
-        "sensor.humidity",
-    }
-    assert b"data-ha-color-mode=\"fade\"" in svg
-    assert b"data-ha-display-entities=\"sensor.temperature,sensor.humidity\"" in svg
-    assert b"data-ha-display-position=\"top-right\"" in svg
-    assert b"22 \xc2\xb0C" in svg
-    assert b"45 %" in svg
+    assert temperature.entity_ids == ("sensor.temperature",)
+    assert humidity.entity_ids == ("sensor.humidity",)
+    assert b"22 \xc2\xb0C" in temperature_svg
+    assert b"45 %" not in temperature_svg
+    assert b"45 %" in humidity_svg
+    assert b"22 \xc2\xb0C" not in humidity_svg
+    assert source_path.read_bytes() == source_bytes
+    assert b"data-ha-" not in source_bytes
+    json_data = json.loads(source_path.with_suffix(".json").read_text("utf-8"))
+    assert set(json_data["configurations"]) == {"temperature", "humidity"}
 
 
-def test_skipped_elements_use_neutral_color_and_persist_in_configured_svg(
+def test_skipped_elements_persist_in_json_configuration(
     tmp_path: Path,
 ) -> None:
     source = """\
@@ -550,12 +570,10 @@ def test_skipped_elements_use_neutral_color_and_persist_in_configured_svg(
         ElementAssignment("room", neutralize=True),
         ElementAssignment("label", neutralize=True),
     )
-    configured_path = tmp_path / "floorplan.configured.svg"
-    configured_path.write_bytes(
-        FloorplanRenderer(source_path).configured_svg(assignments)
+    save_configuration(source_path, "neutral", assignments)
+    renderer = FloorplanRenderer(
+        source_path, load_configuration(source_path, "neutral")
     )
-
-    renderer = FloorplanRenderer(configured_path)
     svg, _ = renderer.render({})
     root = _renderer_module.ET.fromstring(svg)
     elements = {element.attrib.get("id"): element for element in root.iter()}
@@ -563,10 +581,10 @@ def test_skipped_elements_use_neutral_color_and_persist_in_configured_svg(
     assert elements["room"].attrib["fill"] == "#808080"
     assert elements["room"].attrib["stroke"] == "black"
     assert elements["label"].attrib["fill"] == "#404040"
-    assert b'data-ha-neutral="true"' in svg
+    assert b'data-ha-neutral="true"' not in svg
 
 
-def test_device_selection_persists_per_svg_element(tmp_path: Path) -> None:
+def test_device_selection_persists_per_json_assignment(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect id="room_a" width="40" height="40"/>
@@ -580,11 +598,10 @@ def test_device_selection_persists_per_svg_element(tmp_path: Path) -> None:
         ElementAssignment("room_b", device_ids=("device_c",), neutralize=True),
     )
 
-    configured_path = tmp_path / "floorplan.configured.svg"
-    configured_path.write_bytes(
-        FloorplanRenderer(source_path).configured_svg(assignments)
+    save_configuration(source_path, "devices", assignments)
+    renderer = FloorplanRenderer(
+        source_path, load_configuration(source_path, "devices")
     )
-    renderer = FloorplanRenderer(configured_path)
 
     assert {
         assignment.element_id: assignment.device_ids
