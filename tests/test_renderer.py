@@ -31,25 +31,40 @@ save_configuration = _configuration_module.save_configuration
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <g data-ha-entity="sensor.room_temperature">
-    <rect id="room" data-ha-role="area" width="100" height="100"
-          fill="#000000" style="stroke: black"/>
-    <text id="temperature" data-ha-role="value" x="50" y="50">—</text>
-  </g>
+  <rect id="room" width="100" height="100"
+        fill="#000000" style="stroke: black"/>
+  <text id="temperature" x="50" y="50">—</text>
 </svg>
 """
 
 
-def _renderer(tmp_path: Path, source: str = SAMPLE_SVG) -> FloorplanRenderer:
+def _renderer(
+    tmp_path: Path,
+    source: str = SAMPLE_SVG,
+    assignments: tuple[ElementAssignment, ...] = (
+        ElementAssignment(
+            "room",
+            color_entity_id="sensor.room_temperature",
+            color_mode="fill",
+        ),
+        ElementAssignment(
+            "temperature",
+            display_entity_ids=("sensor.room_temperature",),
+        ),
+    ),
+) -> FloorplanRenderer:
     svg_path = tmp_path / "floorplan.svg"
     svg_path.write_text(source, encoding="utf-8")
-    return FloorplanRenderer(svg_path)
+    return FloorplanRenderer(svg_path, assignments)
 
 
 def test_renders_value_and_interpolated_color(tmp_path: Path) -> None:
     renderer = _renderer(tmp_path)
 
-    svg, png = renderer.render({"sensor.room_temperature": "22"})
+    svg, png = renderer.render(
+        {"sensor.room_temperature": "22"},
+        {"sensor.room_temperature": "22 °C"},
+    )
 
     assert b"22 \xc2\xb0C" in svg
     assert b"#F25236" in svg
@@ -60,14 +75,21 @@ def test_renders_text_in_png(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60">
   <rect width="120" height="60" fill="white"/>
-  <g data-ha-entity="sensor.room_temperature">
-    <text id="temperature" data-ha-role="value" x="60" y="40"
-          text-anchor="middle" font-family="sans-serif" font-size="24"
-          fill="black">—</text>
-  </g>
+  <text id="temperature" x="60" y="40"
+        text-anchor="middle" font-family="sans-serif" font-size="24"
+        fill="black">—</text>
 </svg>
 """
-    _, png = _renderer(tmp_path, source).render({"sensor.room_temperature": "22"})
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    renderer = FloorplanRenderer(
+        svg_path,
+        (ElementAssignment("temperature", display_entity_ids=("sensor.room_temperature",)),),
+    )
+    _, png = renderer.render(
+        {"sensor.room_temperature": "22"},
+        {"sensor.room_temperature": "22 °C"},
+    )
 
     image = Image.open(BytesIO(png)).convert("RGB")
     text_region = image.crop((20, 10, 100, 50))
@@ -76,34 +98,30 @@ def test_renders_text_in_png(tmp_path: Path) -> None:
     ).getbbox()
 
 
-def test_renders_glow_with_transparent_edges(tmp_path: Path) -> None:
+def test_ignores_embedded_svg_configuration_metadata(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <g data-ha-entity="sensor.room_temperature">
-    <rect id="glow" data-ha-role="glow" width="100" height="100"/>
+  <g data-ha-entity="sensor.room_temperature" data-ha-min="0">
+    <rect id="room" data-ha-role="area" width="100" height="100"
+          fill="#000000"/>
   </g>
 </svg>
 """
-    svg, png = _renderer(tmp_path, source).render(
-        {"sensor.room_temperature": "22"}
-    )
+    renderer = _renderer(tmp_path, source, assignments=())
+    svg, _ = renderer.render({"sensor.room_temperature": "22"})
 
-    assert b"data-ha-role=\"glow\"" in svg
-    assert b"stop-opacity=\"1\"" in svg
-    assert b"stop-opacity=\"0.9\"" in svg
-    assert b"stop-opacity=\"0.45\"" in svg
-    assert b"stop-opacity=\"0\"" in svg
-    assert b"fill: url(#ha-temperature-glow-glow)" in svg
-    image = Image.open(BytesIO(png)).convert("RGBA")
-    assert image.getpixel((50, 50))[3] > 0
-    assert image.getpixel((75, 50))[3] >= 200
-    assert image.getpixel((0, 50))[3] == 0
+    assert renderer.entity_ids == ()
+    assert b'data-ha-entity="sensor.room_temperature"' in svg
+    assert b'fill="#000000"' in svg
 
 
 def test_uses_unavailable_label_and_neutral_color(tmp_path: Path) -> None:
     renderer = _renderer(tmp_path)
 
-    svg, _ = renderer.render({"sensor.room_temperature": "unknown"})
+    svg, _ = renderer.render(
+        {"sensor.room_temperature": "unknown"},
+        {"sensor.room_temperature": "—"},
+    )
 
     assert "—".encode() in svg
     assert b"#808080" in svg
@@ -124,28 +142,12 @@ def test_default_temperature_palette_moves_from_blue_to_purple(
     assert _renderer_module._temperature_color(40, binding) == "#A855F7"
 
 
-@pytest.mark.parametrize(
-    "metadata",
-    [
-        'data-ha-min="22" data-ha-comfort="22" data-ha-max="28"',
-        'data-ha-color-cold="url(#paint)"',
-    ],
-)
-def test_rejects_invalid_room_metadata(tmp_path: Path, metadata: str) -> None:
-    source = SAMPLE_SVG.replace(
-        'data-ha-entity="sensor.room_temperature"',
-        f'data-ha-entity="sensor.room_temperature" {metadata}',
-    )
-
-    with pytest.raises(FloorplanError):
-        _renderer(tmp_path, source)
-
-
 def test_rejects_svg_without_entity_bindings(tmp_path: Path) -> None:
     renderer = _renderer(
         tmp_path,
         '<svg xmlns="http://www.w3.org/2000/svg">'
         '<rect id="room" width="100" height="100"/></svg>',
+        assignments=(),
     )
 
     assert renderer.entity_ids == ()
@@ -164,7 +166,7 @@ def test_assignable_elements_use_svg_editor_labels(tmp_path: Path) -> None:
   </g>
 </svg>
 """
-    renderer = _renderer(tmp_path, source)
+    renderer = _renderer(tmp_path, source, assignments=())
 
     assert renderer.assignable_elements == (
         _renderer_module.AssignableElement("room", "rect", "Living room"),
@@ -172,7 +174,7 @@ def test_assignable_elements_use_svg_editor_labels(tmp_path: Path) -> None:
     )
 
 
-def test_assigns_entity_to_svg_element_without_metadata(tmp_path: Path) -> None:
+def test_assigns_entity_to_svg_element_from_configuration(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect id="room" width="100" height="100" fill="white"/>
@@ -182,7 +184,13 @@ def test_assigns_entity_to_svg_element_without_metadata(tmp_path: Path) -> None:
     svg_path.write_text(source, encoding="utf-8")
     renderer = FloorplanRenderer(
         svg_path,
-        (ElementAssignment("room", "sensor.room_temperature", "area"),),
+        (
+            ElementAssignment(
+                "room",
+                color_entity_id="sensor.room_temperature",
+                color_mode="fill",
+            ),
+        ),
     )
 
     svg, png = renderer.render({"sensor.room_temperature": "22"})
@@ -620,7 +628,13 @@ def test_renders_svg_with_physical_dimensions(tmp_path: Path) -> None:
     svg_path.write_text(source, encoding="utf-8")
     renderer = FloorplanRenderer(
         svg_path,
-        (ElementAssignment("room", "sensor.room_temperature", "area"),),
+        (
+            ElementAssignment(
+                "room",
+                color_entity_id="sensor.room_temperature",
+                color_mode="fill",
+            ),
+        ),
     )
 
     _, png = renderer.render({"sensor.room_temperature": "22"})

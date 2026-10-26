@@ -20,14 +20,12 @@ from .const import (
     DEFAULT_MIN,
     DEFAULT_PURPLE_AT,
     DEFAULT_PURPLE_COLOR,
-    DEFAULT_UNIT,
     FONT_FILES,
     MAX_SVG_BYTES,
     UNAVAILABLE_COLOR,
 )
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
-COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 PHYSICAL_LENGTH_RE = re.compile(
     r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(mm|cm|in|pt|pc)\s*$"
 )
@@ -38,7 +36,6 @@ PIXELS_PER_UNIT = {
     "pt": 96 / 72,
     "pc": 16.0,
 }
-VALUE_ROLES = {"area", "glow", "value"}
 NEUTRAL_COLOR = "#808080"
 NEUTRAL_TEXT_COLOR = "#404040"
 ASSIGNABLE_TAGS = {
@@ -60,19 +57,16 @@ class FloorplanError(ValueError):
 
 @dataclass(frozen=True)
 class RoomBinding:
-    """The SVG elements and metadata bound to a Home Assistant entity."""
+    """An SVG element colored from a Home Assistant entity."""
 
     entity_id: str
     area_ids: tuple[str, ...]
-    glow_ids: tuple[str, ...]
-    value_ids: tuple[str, ...]
     minimum: float
     comfort: float
     maximum: float
     cold_color: str
     comfort_color: str
     hot_color: str
-    unit: str
     edge_fade_ids: tuple[str, ...] = ()
     transparent_fade_ids: tuple[str, ...] = ()
     purple_at: float = DEFAULT_PURPLE_AT
@@ -84,8 +78,6 @@ class ElementAssignment:
     """Sensor display and color behavior configured for one SVG element."""
 
     element_id: str
-    entity_id: str | None = None
-    role: str | None = None
     display_entity_ids: tuple[str, ...] = ()
     display_position: str = "auto"
     color_entity_id: str | None = None
@@ -105,25 +97,6 @@ class AssignableElement:
 
 def _element_id(element: ET.Element) -> str | None:
     return element.attrib.get("id")
-
-
-def _parse_number(value: str | None, default: float, label: str) -> float:
-    if value is None:
-        return default
-    try:
-        number = float(value)
-    except ValueError as err:
-        raise FloorplanError(f"{label} must be a number") from err
-    if not math.isfinite(number):
-        raise FloorplanError(f"{label} must be finite")
-    return number
-
-
-def _parse_color(value: str | None, default: str, label: str) -> str:
-    color = value or default
-    if not COLOR_RE.fullmatch(color):
-        raise FloorplanError(f"{label} must be a six-digit hex color")
-    return color
 
 
 def _interpolate_color(start: str, end: str, amount: float) -> str:
@@ -160,59 +133,6 @@ def _set_fill(element: ET.Element, color: str) -> None:
             style_items.append(f"{property_name.strip()}: {value.strip()}")
     style_items.append(f"fill: {color}")
     element.set("style", "; ".join(style_items))
-
-
-def _set_glow(element: ET.Element, gradient_id: str) -> None:
-    element.set("fill", f"url(#{gradient_id})")
-    style_items = []
-    for item in element.attrib.get("style", "").split(";"):
-        property_name, separator, value = item.partition(":")
-        if separator and property_name.strip().lower() != "fill" and value.strip():
-            style_items.append(f"{property_name.strip()}: {value.strip()}")
-    style_items.append(f"fill: url(#{gradient_id})")
-    element.set("style", "; ".join(style_items))
-
-
-def _add_glow_gradient(
-    root: ET.Element, gradient_id: str, color: str
-) -> None:
-    defs = next(
-        (child for child in root if child.tag == f"{{{SVG_NAMESPACE}}}defs"),
-        None,
-    )
-    if defs is None:
-        defs = ET.Element(f"{{{SVG_NAMESPACE}}}defs")
-        root.insert(0, defs)
-    gradient = ET.SubElement(
-        defs,
-        f"{{{SVG_NAMESPACE}}}radialGradient",
-        {
-            "id": gradient_id,
-            "cx": "50%",
-            "cy": "50%",
-            "r": "50%",
-        },
-    )
-    ET.SubElement(
-        gradient,
-        f"{{{SVG_NAMESPACE}}}stop",
-        {"offset": "0%", "stop-color": color, "stop-opacity": "1"},
-    )
-    ET.SubElement(
-        gradient,
-        f"{{{SVG_NAMESPACE}}}stop",
-        {"offset": "60%", "stop-color": color, "stop-opacity": "0.9"},
-    )
-    ET.SubElement(
-        gradient,
-        f"{{{SVG_NAMESPACE}}}stop",
-        {"offset": "85%", "stop-color": color, "stop-opacity": "0.45"},
-    )
-    ET.SubElement(
-        gradient,
-        f"{{{SVG_NAMESPACE}}}stop",
-        {"offset": "90%", "stop-color": color, "stop-opacity": "0"},
-    )
 
 
 def _edge_fade_width(element: ET.Element, root: ET.Element) -> float:
@@ -312,12 +232,6 @@ def _add_edge_fade_mask(
         edge.set("stroke-linejoin", "round")
         edge.set("stroke-linecap", "round")
         mask.append(edge)
-
-
-def _set_text(element: ET.Element, text: str) -> None:
-    for child in list(element):
-        element.remove(child)
-    element.text = text
 
 
 def _set_text_lines(element: ET.Element, lines: tuple[str, ...]) -> None:
@@ -467,94 +381,6 @@ def _bindings(
         for element in root.iter()
         if (element_id := _element_id(element)) is not None
     }
-    for group in root.iter():
-        entity_id = group.attrib.get("data-ha-entity")
-        if entity_id is None:
-            continue
-        if not entity_id.startswith(("sensor.", "input_number.")):
-            raise FloorplanError(
-                f"{entity_id!r} must be a sensor or input_number entity"
-            )
-
-        area_ids: list[str] = []
-        glow_ids: list[str] = []
-        value_ids: list[str] = []
-        for child in group.iter():
-            if child is group:
-                continue
-            role = child.attrib.get("data-ha-role")
-            element_id = _element_id(child)
-            if role not in VALUE_ROLES:
-                continue
-            if not element_id:
-                raise FloorplanError(
-                    f"Elements with data-ha-role={role!r} need an id attribute"
-                )
-            if role == "area":
-                area_ids.append(element_id)
-            elif role == "glow":
-                glow_ids.append(element_id)
-            else:
-                value_ids.append(element_id)
-
-        if not area_ids and not glow_ids and not value_ids:
-            raise FloorplanError(
-                f"Group for {entity_id!r} must contain an area or value element"
-            )
-
-        minimum = _parse_number(
-            group.attrib.get("data-ha-min"), DEFAULT_MIN, "data-ha-min"
-        )
-        comfort = _parse_number(
-            group.attrib.get("data-ha-comfort"), DEFAULT_COMFORT, "data-ha-comfort"
-        )
-        maximum = _parse_number(
-            group.attrib.get("data-ha-max"), DEFAULT_MAX, "data-ha-max"
-        )
-        purple_at = _parse_number(
-            group.attrib.get("data-ha-purple-at"),
-            DEFAULT_PURPLE_AT,
-            "data-ha-purple-at",
-        )
-        if not minimum < comfort < maximum < purple_at:
-            raise FloorplanError(
-                "Temperature color stops must satisfy min < comfort < max < purple"
-            )
-
-        bindings.append(
-            RoomBinding(
-                entity_id=entity_id,
-                area_ids=tuple(area_ids),
-                glow_ids=tuple(glow_ids),
-                value_ids=tuple(value_ids),
-                minimum=minimum,
-                comfort=comfort,
-                maximum=maximum,
-                cold_color=_parse_color(
-                    group.attrib.get("data-ha-color-cold"),
-                    DEFAULT_COLD_COLOR,
-                    "data-ha-color-cold",
-                ),
-                comfort_color=_parse_color(
-                    group.attrib.get("data-ha-color-comfort"),
-                    DEFAULT_COMFORT_COLOR,
-                    "data-ha-color-comfort",
-                ),
-                hot_color=_parse_color(
-                    group.attrib.get("data-ha-color-hot"),
-                    DEFAULT_HOT_COLOR,
-                    "data-ha-color-hot",
-                ),
-                unit=group.attrib.get("data-ha-unit", DEFAULT_UNIT),
-                purple_at=purple_at,
-                purple_color=_parse_color(
-                    group.attrib.get("data-ha-color-purple"),
-                    DEFAULT_PURPLE_COLOR,
-                    "data-ha-color-purple",
-                ),
-            )
-        )
-
     for assignment in assignments:
         if assignment.element_id in assigned_elements:
             raise FloorplanError(
@@ -568,42 +394,6 @@ def _bindings(
             )
         tag = element.tag.rsplit("}", 1)[-1]
         if assignment.neutralize:
-            continue
-
-        # Keep entries created by older versions working.
-        if assignment.entity_id is not None and assignment.role is not None:
-            if not assignment.entity_id.startswith(("sensor.", "input_number.")):
-                raise FloorplanError(
-                    f"{assignment.entity_id!r} must be a sensor or input_number entity"
-                )
-            if assignment.role not in VALUE_ROLES:
-                raise FloorplanError(
-                    f"{assignment.role!r} is not a supported element role"
-                )
-            if assignment.role == "value":
-                display_entities_by_element[assignment.element_id] = (
-                    assignment.entity_id,
-                )
-            else:
-                bindings.append(
-                    RoomBinding(
-                        entity_id=assignment.entity_id,
-                        area_ids=(assignment.element_id,)
-                        if assignment.role == "area"
-                        else (),
-                        glow_ids=(assignment.element_id,)
-                        if assignment.role == "glow"
-                        else (),
-                        value_ids=(),
-                        minimum=DEFAULT_MIN,
-                        comfort=DEFAULT_COMFORT,
-                        maximum=DEFAULT_MAX,
-                        cold_color=DEFAULT_COLD_COLOR,
-                        comfort_color=DEFAULT_COMFORT_COLOR,
-                        hot_color=DEFAULT_HOT_COLOR,
-                        unit=DEFAULT_UNIT,
-                    )
-                )
             continue
 
         if assignment.display_entity_ids and tag not in {"text", *TEXT_OVERLAY_TAGS}:
@@ -659,21 +449,18 @@ def _bindings(
                 area_ids=(assignment.element_id,)
                 if assignment.color_mode == "fill"
                 else (),
-                glow_ids=(),
                 edge_fade_ids=(assignment.element_id,)
                 if assignment.color_mode == "fade"
                 else (),
                 transparent_fade_ids=(assignment.element_id,)
                 if assignment.color_mode == "fade-transparent"
                 else (),
-                value_ids=(),
                 minimum=DEFAULT_MIN,
                 comfort=DEFAULT_COMFORT,
                 maximum=DEFAULT_MAX,
                 cold_color=DEFAULT_COLD_COLOR,
                 comfort_color=DEFAULT_COMFORT_COLOR,
                 hot_color=DEFAULT_HOT_COLOR,
-                unit=DEFAULT_UNIT,
             )
         )
 
@@ -858,56 +645,6 @@ def _add_text_overlay(
     parent.append(text)
 
 
-def _assignments_from_svg(root: ET.Element) -> tuple[ElementAssignment, ...]:
-    assignments: list[ElementAssignment] = []
-    for element in root.iter():
-        element_id = _element_id(element)
-        if element_id is None:
-            continue
-        display_entities = tuple(
-            entity_id
-            for entity_id in element.attrib.get(
-                "data-ha-display-entities", ""
-            ).split(",")
-            if entity_id
-        )
-        color_entity = element.attrib.get("data-ha-color-entity")
-        color_mode = element.attrib.get("data-ha-color-mode", "none")
-        neutralize = element.attrib.get("data-ha-neutral") == "true"
-        device_ids = tuple(
-            device_id
-            for device_id in element.attrib.get(
-                "data-ha-device-ids", ""
-            ).split(",")
-            if device_id
-        )
-        legacy_device_id = element.attrib.get("data-ha-device-id")
-        if not device_ids and legacy_device_id:
-            device_ids = (legacy_device_id,)
-        display_position = element.attrib.get(
-            "data-ha-display-position", "auto"
-        )
-        if (
-            display_entities
-            or color_entity
-            or color_mode != "none"
-            or neutralize
-            or device_ids
-        ):
-            assignments.append(
-                ElementAssignment(
-                    element_id=element_id,
-                    display_entity_ids=display_entities,
-                    display_position=display_position,
-                    color_entity_id=color_entity,
-                    color_mode=color_mode,
-                    neutralize=neutralize,
-                    device_ids=device_ids,
-                )
-            )
-    return tuple(assignments)
-
-
 class FloorplanRenderer:
     """Render SVG and PNG variants from an SVG definition and entity states."""
 
@@ -941,7 +678,7 @@ class FloorplanRenderer:
             raise FloorplanError("SVG element IDs must be unique")
 
         self._source = source
-        self.assignments = assignments or _assignments_from_svg(root)
+        self.assignments = assignments
         self.bindings, self.display_entities_by_element = _bindings(
             root, self.assignments
         )
@@ -1024,10 +761,8 @@ class FloorplanRenderer:
                 value = math.nan
             if not math.isfinite(value):
                 color = UNAVAILABLE_COLOR
-                display = "—"
             else:
                 color = _temperature_color(value, binding)
-                display = f"{value:g} {binding.unit}".strip()
 
             for element_id in binding.area_ids:
                 _set_fill(elements_by_id[element_id], color)
@@ -1066,17 +801,6 @@ class FloorplanRenderer:
                 )
                 colored_shape.set("mask", f"url(#{mask_id})")
                 parent.insert(list(parent).index(element) + 1, colored_shape)
-            for element_id in binding.glow_ids:
-                gradient_id = f"ha-temperature-glow-{element_id}"
-                suffix = 2
-                while gradient_id in used_ids:
-                    gradient_id = f"ha-temperature-glow-{element_id}-{suffix}"
-                    suffix += 1
-                used_ids.add(gradient_id)
-                _add_glow_gradient(root, gradient_id, color)
-                _set_glow(elements_by_id[element_id], gradient_id)
-            for element_id in binding.value_ids:
-                _set_text(elements_by_id[element_id], display)
 
         for element_id in self.neutralized_elements:
             element = elements_by_id[element_id]

@@ -82,45 +82,6 @@ Each named configuration creates SVG and PNG entities using the pattern
 `image.floorplan_house_humidity_png`). Use the PNG image entity with the Home
 Assistant Companion app's Android Picture widget.
 
-## Optional hand-authored SVG metadata
-
-The setup flow does not require Home Assistant metadata: it creates the
-per-element assignments described below. For advanced users, the integration
-also continues to support hand-authored, room-group metadata. In this legacy
-format, mark each room with a `<g>` element and set `data-ha-entity` to the
-entity whose numeric state supplies its color and displayed value. Within the
-group, use `data-ha-role="area"` for the colored shape, optional
-`data-ha-role="glow"` for a fading glow, and `data-ha-role="value"` for text
-that displays the value. Glow shapes fade from the entity color in the center
-to transparent at the edges.
-
-```xml
-<g
-  id="living-room"
-  data-ha-entity="sensor.teplomer_obyvak_temperature"
-  data-ha-min="0"
-  data-ha-comfort="15"
-  data-ha-max="25"
-  data-ha-purple-at="35"
-  data-ha-color-cold="#3B82F6"
-  data-ha-color-comfort="#F97316"
-  data-ha-color-hot="#EF4444"
-  data-ha-color-purple="#A855F7"
-  data-ha-unit="°C"
->
-  <rect id="living-room-area" data-ha-role="area"
-        x="50" y="50" width="300" height="300"/>
-  <rect id="living-room-glow" data-ha-role="glow"
-        x="25" y="25" width="350" height="350"/>
-  <text id="living-room-value" data-ha-role="value"
-        x="200" y="200" text-anchor="middle">—</text>
-</g>
-```
-
-The room metadata attributes are optional except `data-ha-entity`; omitted
-values use the defaults below. Colors must be six-digit hex colors. The
-integration updates all marked area and value elements within a room group.
-
 ## JSON configuration
 
 During setup, assignable elements need an SVG `id`; useful editor labels are
@@ -136,7 +97,7 @@ for floor-plan-sized backdrops; you can choose a corner or center manually.
 For each element, setup lets you select one or more devices and then choose
 display and color entities from the selected devices. All eligible entities
 are selected for display by default; a temperature entity is selected for color
-when available. Numeric color-entity states use the legacy color scale above.
+when available. Numeric color-entity states use the scale described below.
 Leave the device selection empty, or skip an element during assignment, to use
 neutral gray.
 The flow uses labels from SVG editors such as Inkscape, falling back to the
@@ -180,14 +141,13 @@ existing configurations. For example, `floorplans/house.json` has this shape:
 }
 ```
 
-The flow writes and validates this file. Do not add configuration metadata to
-the SVG; legacy hand-authored SVG metadata remains supported for existing
-setups.
+The flow writes and validates this file. Do not add Home Assistant
+configuration metadata to the SVG.
 
-The default temperature scale runs from blue at 0 °C through orange at 15 °C,
-red at 25 °C, and purple at 35 °C and above. Values between color stops are
-linearly interpolated. Unknown or non-numeric
-sensor states are shown as `—` and use the neutral gray `#808080`.
+Numeric color-entity states use the default scale from blue at 0 through orange
+at 15, red at 25, and purple at 35 and above. Values between color stops are
+linearly interpolated. Unknown or non-numeric sensor states use the neutral
+gray `#808080`.
 
 The [`examples/example_house.svg`](examples/example_house.svg) file shows a
 simple house layout with separately labeled areas and a bitmap outline. It has

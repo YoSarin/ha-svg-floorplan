@@ -184,17 +184,10 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             renderer = await self.hass.async_add_executor_job(
                 FloorplanRenderer, source
             )
+            existing_assignments: tuple[ElementAssignment, ...] = ()
             if CONF_CONFIGURATION_NAME in entry.data:
                 existing_assignments = await self.hass.async_add_executor_job(
                     load_configuration, source, self._configuration_name
-                )
-                active_renderer = await self.hass.async_add_executor_job(
-                    FloorplanRenderer, source, existing_assignments
-                )
-            else:
-                active_renderer = await self.hass.async_add_executor_job(
-                    FloorplanRenderer,
-                    _source_path(self.hass, entry.data[CONF_SVG_PATH]),
                 )
             if not renderer.assignable_elements:
                 return self.async_abort(
@@ -215,7 +208,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pending_assignments = []
         self._existing_assignments = {
             assignment.element_id: assignment
-            for assignment in active_renderer.assignments
+            for assignment in existing_assignments
         }
         self._assignment_index = 0
         self._legacy_device_id = entry.data.get(CONF_DEVICE_ID)
