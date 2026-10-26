@@ -67,7 +67,7 @@ def test_renders_value_and_interpolated_color(tmp_path: Path) -> None:
     )
 
     assert b"22 \xc2\xb0C" in svg
-    assert b"#F25236" in svg
+    assert b"#E0DA90" in svg
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -127,19 +127,20 @@ def test_uses_unavailable_label_and_neutral_color(tmp_path: Path) -> None:
     assert b"#808080" in svg
 
 
-def test_default_temperature_palette_moves_from_blue_to_purple(
+def test_default_temperature_palette_keeps_mild_weather_cool(
     tmp_path: Path,
 ) -> None:
     renderer = _renderer(tmp_path)
     binding = renderer.bindings[0]
 
-    assert _renderer_module._temperature_color(0, binding) == "#3B82F6"
-    assert _renderer_module._temperature_color(13, binding) == "#E07534"
-    assert _renderer_module._temperature_color(15, binding) == "#F97316"
-    assert _renderer_module._temperature_color(25, binding) == "#EF4444"
-    assert _renderer_module._temperature_color(30, binding) == "#CC4C9E"
-    assert _renderer_module._temperature_color(35, binding) == "#A855F7"
-    assert _renderer_module._temperature_color(40, binding) == "#A855F7"
+    assert _renderer_module._temperature_color(-20, binding) == "#3288BD"
+    assert _renderer_module._temperature_color(0, binding) == "#55AFAD"
+    assert _renderer_module._temperature_color(10, binding) == "#66C2A5"
+    assert _renderer_module._temperature_color(12, binding) == "#7AC6A2"
+    assert _renderer_module._temperature_color(25, binding) == "#FEE08B"
+    assert _renderer_module._temperature_color(32.5, binding) == "#EA8F6D"
+    assert _renderer_module._temperature_color(40, binding) == "#D53E4F"
+    assert _renderer_module._temperature_color(50, binding) == "#D53E4F"
 
 
 def test_rejects_svg_without_entity_bindings(tmp_path: Path) -> None:
@@ -196,7 +197,7 @@ def test_assigns_entity_to_svg_element_from_configuration(tmp_path: Path) -> Non
     svg, png = renderer.render({"sensor.room_temperature": "22"})
 
     assert renderer.entity_ids == ("sensor.room_temperature",)
-    assert b'fill: #F25236' in svg
+    assert b'fill: #E0DA90' in svg
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -237,7 +238,7 @@ def test_displays_multiple_sensors_and_colors_with_separate_sensor(
         "sensor.temperature",
         "sensor.humidity",
     }
-    assert b"#F25236" in svg
+    assert b"#E0DA90" in svg
     assert b"22 \xc2\xb0C" in svg
     assert b"45 %" in svg
     assert b"Living" not in svg
@@ -398,7 +399,7 @@ def test_fade_mode_follows_shape_edges_and_uses_neutral_underlay(
     center = image.getpixel((50, 40))
     near_edge = image.getpixel((50, 22))
     outside = image.getpixel((50, 18))
-    assert center == (242, 82, 54)
+    assert center == (224, 218, 144)
     assert near_edge != (255, 255, 255)
     assert near_edge != center
     assert outside == (255, 255, 255)
@@ -433,7 +434,7 @@ def test_transparent_fade_reveals_background_at_shape_edges(
     center = image.getpixel((50, 40))
     near_edge = image.getpixel((50, 22))
     outside = image.getpixel((50, 18))
-    assert center == (242, 82, 54)
+    assert center == (224, 218, 144)
     assert near_edge != (255, 255, 255)
     assert near_edge != center
     assert outside == (255, 255, 255)

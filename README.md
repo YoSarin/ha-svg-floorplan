@@ -144,10 +144,11 @@ existing configurations. For example, `floorplans/house.json` has this shape:
 The flow writes and validates this file. Do not add Home Assistant
 configuration metadata to the SVG.
 
-Numeric color-entity states use the default scale from blue at 0 through orange
-at 15, red at 25, and purple at 35 and above. Values between color stops are
-linearly interpolated. Unknown or non-numeric sensor states use the neutral
-gray `#808080`.
+Numeric color-entity states use a cool-to-warm weather palette: blue at -20,
+green at 10, yellow at 25, and red at 40 and above. Values between these stops
+are linearly interpolated, so mild temperatures such as 12 remain in the
+blue/green range rather than becoming orange. Unknown or non-numeric sensor
+states use the neutral gray `#808080`.
 
 The [`examples/example_house.svg`](examples/example_house.svg) file shows a
 simple house layout with separately labeled areas and a bitmap outline. It has
@@ -162,3 +163,7 @@ Run the renderer tests with:
 python -m pip install -r requirements_test.txt
 python -m pytest
 ```
+
+Every push to `main` runs the tests and Python compilation. If they pass, the
+release workflow increments the integration's patch version, pushes a matching
+`v*` tag, and publishes a GitHub release.
