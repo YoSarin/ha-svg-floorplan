@@ -18,7 +18,7 @@ DEFAULT_HOT_COLOR: Final = "#FEE08B"
 DEFAULT_PURPLE_COLOR: Final = "#D53E4F"
 UNAVAILABLE_COLOR: Final = "#808080"
 
-MAX_SVG_BYTES: Final = 2_000_000
+MAX_SVG_BYTES: Final = 10 * 1024 * 1024
 FONT_FILES: Final = (
     "DejaVuSans.ttf",
     "DejaVuSans-Bold.ttf",

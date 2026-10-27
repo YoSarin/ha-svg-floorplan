@@ -676,6 +676,15 @@ def test_rejects_duplicate_svg_ids(tmp_path: Path) -> None:
         _renderer(tmp_path, duplicate)
 
 
+def test_rejects_svg_above_size_limit(tmp_path: Path, monkeypatch) -> None:
+    svg_path = tmp_path / "oversized.svg"
+    svg_path.write_bytes(b"<svg/>")
+    monkeypatch.setattr(_renderer_module, "MAX_SVG_BYTES", 5)
+
+    with pytest.raises(FloorplanError, match="SVG exceeds the 5 byte size limit"):
+        FloorplanRenderer(svg_path)
+
+
 def test_custom_integration_includes_english_translations() -> None:
     integration = Path(__file__).parents[1] / "custom_components" / "svg_floorplan"
     source = json.loads((integration / "strings.json").read_text(encoding="utf-8"))

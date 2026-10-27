@@ -34,7 +34,7 @@
       "invalid_configuration_json": "The SVG's JSON sidecar is invalid or unreadable. Correct or restore the file before continuing.",
       "file_not_found": "The SVG file was not found. Check the path and spelling.",
       "file_read_error": "The SVG file could not be read. Check the file permissions.",
-      "file_too_large": "The SVG exceeds the 2 MB size limit.",
+      "file_too_large": "The SVG exceeds the 10 MB size limit.",
       "malformed_xml": "The file is not well-formed XML. Open it in an SVG editor and fix the reported XML error.",
       "not_svg": "The XML root element is not an SVG document.",
       "invalid_metadata": "The SVG has invalid Home Assistant metadata. Check entity IDs, element roles, and temperature settings.",
