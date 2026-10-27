@@ -329,6 +329,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "element_id": element.element_id,
                         "display_entity_ids": [],
                         "display_position": "auto",
+                        "text_shadow": False,
                         "color_entity_id": None,
                         "color_mode": "none",
                         "neutralize": True,
@@ -353,6 +354,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "display_position": user_input.get(
                             "display_position", "auto"
                         ),
+                        "text_shadow": user_input.get("text_shadow", False),
                         "color_entity_id": color_entity_id,
                         "color_mode": color_mode,
                         "device_ids": list(self._selected_device_ids),
@@ -482,6 +484,12 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     reorder=True,
                 )
             )
+            fields[
+                vol.Optional(
+                    "text_shadow",
+                    default=previous.text_shadow if previous else False,
+                )
+            ] = bool
             if element.tag not in {"text", "path", "polygon"}:
                 fields[
                     vol.Optional(
@@ -539,6 +547,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 element_id=assignment["element_id"],
                 display_entity_ids=tuple(assignment["display_entity_ids"]),
                 display_position=assignment["display_position"],
+                text_shadow=assignment.get("text_shadow", False),
                 color_entity_id=assignment["color_entity_id"],
                 color_mode=assignment["color_mode"],
                 neutralize=assignment.get("neutralize", False),

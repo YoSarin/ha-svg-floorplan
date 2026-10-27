@@ -98,6 +98,74 @@ def test_renders_text_in_png(tmp_path: Path) -> None:
     ).getbbox()
 
 
+def test_soft_shadow_replaces_outline_on_existing_text(tmp_path: Path) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60">
+  <rect width="120" height="60" fill="white"/>
+  <text id="temperature" x="60" y="40" text-anchor="middle"
+        style="fill: black; stroke: black; stroke-width: 2">—</text>
+</svg>
+"""
+    renderer = _renderer(
+        tmp_path,
+        source,
+        assignments=(
+            ElementAssignment(
+                "temperature",
+                display_entity_ids=("sensor.room_temperature",),
+                text_shadow=True,
+            ),
+        ),
+    )
+
+    svg, png = renderer.render(
+        {"sensor.room_temperature": "22"},
+        {"sensor.room_temperature": "22 °C"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    text = next(element for element in root.iter() if element.tag.endswith("text"))
+    shadow_filter = next(
+        element for element in root.iter() if element.tag.endswith("filter")
+    )
+
+    assert text.attrib["stroke"] == "none"
+    assert text.attrib["style"] == "fill: black; stroke: none"
+    assert text.attrib["filter"] == f"url(#{shadow_filter.attrib['id']})"
+    assert any(
+        element.tag.endswith("feGaussianBlur") for element in shadow_filter
+    )
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_soft_shadow_replaces_outline_on_shape_readings(tmp_path: Path) -> None:
+    renderer = _renderer(
+        tmp_path,
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<rect id="room" width="100" height="100"/></svg>',
+        assignments=(
+            ElementAssignment(
+                "room",
+                display_entity_ids=("sensor.room_temperature",),
+                text_shadow=True,
+            ),
+        ),
+    )
+
+    svg, png = renderer.render(
+        {"sensor.room_temperature": "22"},
+        {"sensor.room_temperature": "22 °C"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    text = next(element for element in root.iter() if element.tag.endswith("text"))
+
+    assert text.attrib["stroke"] == "none"
+    assert "stroke-width" not in text.attrib
+    assert "paint-order" not in text.attrib
+    assert text.attrib["filter"].startswith("url(#ha-text-shadow-")
+    assert b"feGaussianBlur" in svg
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
 def test_ignores_embedded_svg_configuration_metadata(tmp_path: Path) -> None:
     source = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -521,6 +589,7 @@ def test_json_sidecar_stores_multiple_independent_configurations(
             "room",
             display_entity_ids=("sensor.temperature",),
             display_position="top-right",
+            text_shadow=True,
             color_entity_id="sensor.temperature",
             color_mode="fade",
         ),
@@ -553,6 +622,7 @@ def test_json_sidecar_stores_multiple_independent_configurations(
     )
 
     assert temperature.entity_ids == ("sensor.temperature",)
+    assert temperature.assignments[0].text_shadow
     assert humidity.entity_ids == ("sensor.humidity",)
     assert b"22 \xc2\xb0C" in temperature_svg
     assert b"45 %" not in temperature_svg

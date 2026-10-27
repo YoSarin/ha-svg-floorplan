@@ -80,6 +80,7 @@ class ElementAssignment:
     element_id: str
     display_entity_ids: tuple[str, ...] = ()
     display_position: str = "auto"
+    text_shadow: bool = False
     color_entity_id: str | None = None
     color_mode: str = "none"
     neutralize: bool = False
@@ -245,6 +246,88 @@ def _set_text_lines(element: ET.Element, lines: tuple[str, ...]) -> None:
             attributes["x"] = x
         span = ET.SubElement(element, f"{{{SVG_NAMESPACE}}}tspan", attributes)
         span.text = line
+
+
+def _remove_text_outline(element: ET.Element) -> None:
+    """Remove hard text outlines when a soft shadow is enabled."""
+    for attribute in ("stroke", "stroke-width", "stroke-opacity", "paint-order"):
+        element.attrib.pop(attribute, None)
+    element.set("stroke", "none")
+    style_items = []
+    for item in element.attrib.get("style", "").split(";"):
+        property_name, separator, value = item.partition(":")
+        if (
+            separator
+            and property_name.strip().lower()
+            not in {"stroke", "stroke-width", "stroke-opacity", "paint-order"}
+            and value.strip()
+        ):
+            style_items.append(f"{property_name.strip()}: {value.strip()}")
+    style_items.append("stroke: none")
+    element.set("style", "; ".join(style_items))
+
+
+def _apply_text_shadow(
+    root: ET.Element, element: ET.Element, used_ids: set[str]
+) -> None:
+    """Add a soft, fading shadow behind text and remove its hard outline."""
+    element_id = _element_id(element) or "text"
+    filter_id = f"ha-text-shadow-{element_id}"
+    suffix = 2
+    while filter_id in used_ids:
+        filter_id = f"ha-text-shadow-{element_id}-{suffix}"
+        suffix += 1
+    used_ids.add(filter_id)
+
+    defs = next(
+        (child for child in root if child.tag == f"{{{SVG_NAMESPACE}}}defs"),
+        None,
+    )
+    if defs is None:
+        defs = ET.Element(f"{{{SVG_NAMESPACE}}}defs")
+        root.insert(0, defs)
+    shadow_filter = ET.SubElement(
+        defs,
+        f"{{{SVG_NAMESPACE}}}filter",
+        {
+            "id": filter_id,
+            "x": "-50%",
+            "y": "-75%",
+            "width": "200%",
+            "height": "250%",
+        },
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feGaussianBlur",
+        {"in": "SourceAlpha", "stdDeviation": "1.5", "result": "blur"},
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feOffset",
+        {"in": "blur", "dx": "0", "dy": "0.5", "result": "offset"},
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feFlood",
+        {"flood-color": "#000000", "flood-opacity": "0.75", "result": "shadow"},
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feComposite",
+        {
+            "in": "shadow",
+            "in2": "offset",
+            "operator": "in",
+            "result": "soft-shadow",
+        },
+    )
+    merge = ET.SubElement(shadow_filter, f"{{{SVG_NAMESPACE}}}feMerge")
+    ET.SubElement(merge, f"{{{SVG_NAMESPACE}}}feMergeNode", {"in": "soft-shadow"})
+    ET.SubElement(merge, f"{{{SVG_NAMESPACE}}}feMergeNode", {"in": "SourceGraphic"})
+
+    _remove_text_outline(element)
+    element.set("filter", f"url(#{filter_id})")
 
 
 def _path_vertices(data: str) -> tuple[tuple[float, float], ...]:
@@ -474,7 +557,7 @@ def _add_text_overlay(
     position: str,
     root: ET.Element,
     transform_chain: tuple[str, ...],
-) -> None:
+) -> ET.Element:
     """Place sensor readings centered and scaled within an SVG shape."""
     tag = element.tag.rsplit("}", 1)[-1]
     polygon_points: tuple[tuple[float, float], ...] | None = None
@@ -643,6 +726,7 @@ def _add_text_overlay(
             {"transform": transform},
         )
     parent.append(text)
+    return text
 
 
 class FloorplanRenderer:
@@ -691,6 +775,11 @@ class FloorplanRenderer:
             assignment.element_id: assignment.display_position
             for assignment in self.assignments
             if assignment.display_entity_ids
+        }
+        self.text_shadow_elements = {
+            assignment.element_id
+            for assignment in self.assignments
+            if assignment.display_entity_ids and assignment.text_shadow
         }
         assignable_elements: list[AssignableElement] = []
 
@@ -810,7 +899,7 @@ class FloorplanRenderer:
                 _set_fill(element, NEUTRAL_COLOR)
 
         display_values = display_values or {}
-        text_overlays: list[tuple[ET.Element, tuple[str, ...], str]] = []
+        text_overlays: list[tuple[ET.Element, tuple[str, ...], str, bool]] = []
         for element_id, entity_ids in self.display_entities_by_element.items():
             lines = tuple(
                 display_values.get(entity_id, f"{entity_id}: {states.get(entity_id, '—')}")
@@ -819,25 +908,28 @@ class FloorplanRenderer:
             element = elements_by_id[element_id]
             if element.tag.rsplit("}", 1)[-1] == "text":
                 _set_text_lines(element, lines)
+                if element_id in self.text_shadow_elements:
+                    _apply_text_shadow(root, element, used_ids)
             else:
                 text_overlays.append(
                     (
                         element,
                         lines,
                         self.display_position_by_element.get(element_id, "auto"),
+                        element_id in self.text_shadow_elements,
                     )
                 )
 
         if text_overlays:
             overlay_layer = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}g")
-            for element, lines, position in text_overlays:
+            for element, lines, position, text_shadow in text_overlays:
                 transform_chain = []
                 ancestor = parents.get(element)
                 while ancestor is not None and ancestor is not root:
                     if transform := ancestor.attrib.get("transform"):
                         transform_chain.append(transform)
                     ancestor = parents.get(ancestor)
-                _add_text_overlay(
+                overlay = _add_text_overlay(
                     element,
                     overlay_layer,
                     lines,
@@ -845,6 +937,8 @@ class FloorplanRenderer:
                     root,
                     tuple(reversed(transform_chain)),
                 )
+                if text_shadow:
+                    _apply_text_shadow(root, overlay, used_ids)
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:
