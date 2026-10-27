@@ -80,7 +80,7 @@ class ElementAssignment:
     element_id: str
     display_entity_ids: tuple[str, ...] = ()
     display_position: str = "auto"
-    text_shadow: bool = False
+    improve_readability: bool = False
     color_entity_id: str | None = None
     color_mode: str = "none"
     neutralize: bool = False
@@ -267,10 +267,10 @@ def _remove_text_outline(element: ET.Element) -> None:
     element.set("style", "; ".join(style_items))
 
 
-def _apply_text_shadow(
+def _apply_readability_halo(
     root: ET.Element, element: ET.Element, used_ids: set[str]
 ) -> None:
-    """Add a soft, fading shadow behind text and remove its hard outline."""
+    """Add a strong, soft dark halo behind text and remove its hard outline."""
     element_id = _element_id(element) or "text"
     filter_id = f"ha-text-shadow-{element_id}"
     suffix = 2
@@ -300,30 +300,50 @@ def _apply_text_shadow(
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feGaussianBlur",
-        {"in": "SourceAlpha", "stdDeviation": "1.5", "result": "blur"},
-    )
-    ET.SubElement(
-        shadow_filter,
-        f"{{{SVG_NAMESPACE}}}feOffset",
-        {"in": "blur", "dx": "0", "dy": "0.5", "result": "offset"},
+        {"in": "SourceAlpha", "stdDeviation": "3", "result": "wide-blur"},
     )
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feFlood",
-        {"flood-color": "#000000", "flood-opacity": "0.75", "result": "shadow"},
+        {"flood-color": "#000000", "flood-opacity": "0.95", "result": "wide-color"},
     )
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feComposite",
         {
-            "in": "shadow",
-            "in2": "offset",
+            "in": "wide-color",
+            "in2": "wide-blur",
             "operator": "in",
-            "result": "soft-shadow",
+            "result": "wide-halo",
+        },
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feGaussianBlur",
+        {
+            "in": "SourceAlpha",
+            "stdDeviation": "1.2",
+            "result": "near-blur",
+        },
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feFlood",
+        {"flood-color": "#000000", "flood-opacity": "0.98", "result": "near-color"},
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feComposite",
+        {
+            "in": "near-color",
+            "in2": "near-blur",
+            "operator": "in",
+            "result": "near-halo",
         },
     )
     merge = ET.SubElement(shadow_filter, f"{{{SVG_NAMESPACE}}}feMerge")
-    ET.SubElement(merge, f"{{{SVG_NAMESPACE}}}feMergeNode", {"in": "soft-shadow"})
+    ET.SubElement(merge, f"{{{SVG_NAMESPACE}}}feMergeNode", {"in": "wide-halo"})
+    ET.SubElement(merge, f"{{{SVG_NAMESPACE}}}feMergeNode", {"in": "near-halo"})
     ET.SubElement(merge, f"{{{SVG_NAMESPACE}}}feMergeNode", {"in": "SourceGraphic"})
 
     _remove_text_outline(element)
@@ -776,10 +796,10 @@ class FloorplanRenderer:
             for assignment in self.assignments
             if assignment.display_entity_ids
         }
-        self.text_shadow_elements = {
+        self.readability_halo_elements = {
             assignment.element_id
             for assignment in self.assignments
-            if assignment.display_entity_ids and assignment.text_shadow
+            if assignment.display_entity_ids and assignment.improve_readability
         }
         assignable_elements: list[AssignableElement] = []
 
@@ -908,21 +928,21 @@ class FloorplanRenderer:
             element = elements_by_id[element_id]
             if element.tag.rsplit("}", 1)[-1] == "text":
                 _set_text_lines(element, lines)
-                if element_id in self.text_shadow_elements:
-                    _apply_text_shadow(root, element, used_ids)
+                if element_id in self.readability_halo_elements:
+                    _apply_readability_halo(root, element, used_ids)
             else:
                 text_overlays.append(
                     (
                         element,
                         lines,
                         self.display_position_by_element.get(element_id, "auto"),
-                        element_id in self.text_shadow_elements,
+                        element_id in self.readability_halo_elements,
                     )
                 )
 
         if text_overlays:
             overlay_layer = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}g")
-            for element, lines, position, text_shadow in text_overlays:
+            for element, lines, position, improve_readability in text_overlays:
                 transform_chain = []
                 ancestor = parents.get(element)
                 while ancestor is not None and ancestor is not root:
@@ -937,8 +957,8 @@ class FloorplanRenderer:
                     root,
                     tuple(reversed(transform_chain)),
                 )
-                if text_shadow:
-                    _apply_text_shadow(root, overlay, used_ids)
+                if improve_readability:
+                    _apply_readability_halo(root, overlay, used_ids)
 
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         try:

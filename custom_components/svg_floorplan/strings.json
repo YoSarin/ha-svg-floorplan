@@ -15,7 +15,7 @@
         "data": {
           "display_entities": "Entities to display on this element",
           "display_position": "Where to place the readings",
-          "text_shadow": "Add a soft gradient shadow behind readings (remove outline)",
+          "improve_readability": "Improve reading contrast (dark halo; no outline)",
           "color_entity": "Entity whose value controls the color",
           "color_mode": "Color or fade this element",
           "skip": "Skip this element (use neutral gray)"

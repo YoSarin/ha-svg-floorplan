@@ -113,7 +113,7 @@ def test_soft_shadow_replaces_outline_on_existing_text(tmp_path: Path) -> None:
             ElementAssignment(
                 "temperature",
                 display_entity_ids=("sensor.room_temperature",),
-                text_shadow=True,
+                improve_readability=True,
             ),
         ),
     )
@@ -131,8 +131,16 @@ def test_soft_shadow_replaces_outline_on_existing_text(tmp_path: Path) -> None:
     assert text.attrib["stroke"] == "none"
     assert text.attrib["style"] == "fill: black; stroke: none"
     assert text.attrib["filter"] == f"url(#{shadow_filter.attrib['id']})"
+    blur_deviations = [
+        element.attrib["stdDeviation"]
+        for element in shadow_filter
+        if element.tag.endswith("feGaussianBlur")
+    ]
+    assert blur_deviations == ["3", "1.2"]
     assert any(
-        element.tag.endswith("feGaussianBlur") for element in shadow_filter
+        element.tag.endswith("feFlood")
+        and element.attrib["flood-opacity"] == "0.98"
+        for element in shadow_filter
     )
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
@@ -146,7 +154,7 @@ def test_soft_shadow_replaces_outline_on_shape_readings(tmp_path: Path) -> None:
             ElementAssignment(
                 "room",
                 display_entity_ids=("sensor.room_temperature",),
-                text_shadow=True,
+                improve_readability=True,
             ),
         ),
     )
@@ -589,7 +597,7 @@ def test_json_sidecar_stores_multiple_independent_configurations(
             "room",
             display_entity_ids=("sensor.temperature",),
             display_position="top-right",
-            text_shadow=True,
+            improve_readability=True,
             color_entity_id="sensor.temperature",
             color_mode="fade",
         ),
@@ -622,7 +630,7 @@ def test_json_sidecar_stores_multiple_independent_configurations(
     )
 
     assert temperature.entity_ids == ("sensor.temperature",)
-    assert temperature.assignments[0].text_shadow
+    assert temperature.assignments[0].improve_readability
     assert humidity.entity_ids == ("sensor.humidity",)
     assert b"22 \xc2\xb0C" in temperature_svg
     assert b"45 %" not in temperature_svg
@@ -632,6 +640,37 @@ def test_json_sidecar_stores_multiple_independent_configurations(
     assert b"data-ha-" not in source_bytes
     json_data = json.loads(source_path.with_suffix(".json").read_text("utf-8"))
     assert set(json_data["configurations"]) == {"temperature", "humidity"}
+    assert json_data["configurations"]["temperature"]["assignments"][0][
+        "improve_readability"
+    ]
+
+
+def test_loads_legacy_text_shadow_configuration(tmp_path: Path) -> None:
+    source_path = tmp_path / "floorplan.svg"
+    source_path.write_text(SAMPLE_SVG, encoding="utf-8")
+    source_path.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "configurations": {
+                    "legacy": {
+                        "assignments": [
+                            {
+                                "element_id": "temperature",
+                                "display_entity_ids": ["sensor.room_temperature"],
+                                "text_shadow": True,
+                            }
+                        ]
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assignment = load_configuration(source_path, "legacy")[0]
+
+    assert assignment.improve_readability
 
 
 def test_skipped_elements_persist_in_json_configuration(

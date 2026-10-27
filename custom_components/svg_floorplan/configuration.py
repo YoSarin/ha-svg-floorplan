@@ -46,6 +46,9 @@ def load_configuration(
             if not isinstance(item, dict):
                 raise TypeError("each assignment must be an object")
             assignment = dict(item)
+            if "improve_readability" not in assignment and "text_shadow" in assignment:
+                assignment["improve_readability"] = assignment["text_shadow"]
+            assignment.pop("text_shadow", None)
             for key in ("display_entity_ids", "device_ids"):
                 assignment[key] = tuple(assignment.get(key, ()))
             assignments.append(ElementAssignment(**assignment))

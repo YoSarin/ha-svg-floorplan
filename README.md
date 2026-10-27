@@ -61,8 +61,8 @@ no system fonts installed.
    selection order.
    Automatic placement centers readings in room shapes and places readings
    for floor-plan-sized backdrops near their top-left edge; you can override
-   the position. Enable the optional soft gradient text shadow to improve
-   contrast on detailed backgrounds; it replaces the hard text outline.
+   the position. Enable **Improve reading contrast** to add a strong, soft
+   dark halo on detailed backgrounds; it replaces the hard text outline.
    Independently, choose an entity to control the element's
    color, which defaults to solid color. A numeric entity state is mapped
    through the color scale; fading to neutral gray along the shape edges or
@@ -95,7 +95,7 @@ the selected entities in the selector to choose their reading order.
 Automatic
 placement uses the shape's center for room-sized shapes and the top-left edge
 for floor-plan-sized backdrops; you can choose a corner or center manually.
-The optional soft gradient text shadow can improve reading contrast on
+**Improve reading contrast** adds a strong, soft dark halo around readings on
 complex backgrounds. When enabled, it removes the hard text outline.
 
 For each element, setup lets you select one or more devices and then choose
@@ -121,7 +121,7 @@ existing configurations. For example, `floorplans/house.json` has this shape:
           "element_id": "living-room",
           "display_entity_ids": ["sensor.living_room_temperature"],
           "display_position": "auto",
-          "text_shadow": false,
+          "improve_readability": false,
           "color_entity_id": "sensor.living_room_temperature",
           "color_mode": "fill",
           "neutralize": false,
