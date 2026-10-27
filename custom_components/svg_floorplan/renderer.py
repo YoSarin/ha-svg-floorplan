@@ -267,6 +267,55 @@ def _remove_text_outline(element: ET.Element) -> None:
     element.set("style", "; ".join(style_items))
 
 
+def _text_font_size(element: ET.Element, root: ET.Element) -> float:
+    """Resolve the nearest SVG font size so the halo scales with the text."""
+    ancestors: list[ET.Element] = []
+    parents = {child: parent for parent in root.iter() for child in parent}
+    current: ET.Element | None = element
+    while current is not None:
+        ancestors.append(current)
+        current = parents.get(current)
+
+    font_size = 16.0
+    for ancestor in reversed(ancestors):
+        declarations = dict(
+            (name.strip().lower(), value.strip())
+            for name, value in (
+                item.split(":", 1)
+                for item in ancestor.attrib.get("style", "").split(";")
+                if ":" in item
+            )
+        )
+        value = declarations.get(
+            "font-size", ancestor.attrib.get("font-size", "")
+        )
+        match = re.fullmatch(
+            r"([+]?(?:\d+(?:\.\d*)?|\.\d+))(px|pt|pc|mm|cm|in|em|rem|%)?",
+            value.strip(),
+        )
+        if match is None:
+            continue
+        amount = float(match.group(1))
+        unit = match.group(2)
+        if unit in {"em", "%"}:
+            amount *= font_size / (100 if unit == "%" else 1)
+        elif unit == "rem":
+            amount *= 16
+        elif unit == "pt":
+            amount *= 96 / 72
+        elif unit == "pc":
+            amount *= 16
+        elif unit == "mm":
+            amount *= 96 / 25.4
+        elif unit == "cm":
+            amount *= 96 / 2.54
+        elif unit == "in":
+            amount *= 96
+        if math.isfinite(amount) and amount > 0:
+            font_size = amount
+    return font_size
+
+
 def _apply_readability_halo(
     root: ET.Element, element: ET.Element, used_ids: set[str]
 ) -> None:
@@ -286,6 +335,7 @@ def _apply_readability_halo(
     if defs is None:
         defs = ET.Element(f"{{{SVG_NAMESPACE}}}defs")
         root.insert(0, defs)
+    font_size = _text_font_size(element, root)
     shadow_filter = ET.SubElement(
         defs,
         f"{{{SVG_NAMESPACE}}}filter",
@@ -300,12 +350,16 @@ def _apply_readability_halo(
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feGaussianBlur",
-        {"in": "SourceAlpha", "stdDeviation": "3", "result": "wide-blur"},
+        {
+            "in": "SourceAlpha",
+            "stdDeviation": f"{max(font_size * 0.4, 4.0):g}",
+            "result": "wide-blur",
+        },
     )
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feFlood",
-        {"flood-color": "#000000", "flood-opacity": "0.95", "result": "wide-color"},
+        {"flood-color": "#000000", "flood-opacity": "0.97", "result": "wide-color"},
     )
     ET.SubElement(
         shadow_filter,
@@ -319,17 +373,27 @@ def _apply_readability_halo(
     )
     ET.SubElement(
         shadow_filter,
-        f"{{{SVG_NAMESPACE}}}feGaussianBlur",
+        f"{{{SVG_NAMESPACE}}}feMorphology",
         {
             "in": "SourceAlpha",
-            "stdDeviation": "1.2",
+            "operator": "dilate",
+            "radius": f"{max(font_size * 0.14, 2.0):g}",
+            "result": "expanded-alpha",
+        },
+    )
+    ET.SubElement(
+        shadow_filter,
+        f"{{{SVG_NAMESPACE}}}feGaussianBlur",
+        {
+            "in": "expanded-alpha",
+            "stdDeviation": f"{max(font_size * 0.1, 1.0):g}",
             "result": "near-blur",
         },
     )
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feFlood",
-        {"flood-color": "#000000", "flood-opacity": "0.98", "result": "near-color"},
+        {"flood-color": "#000000", "flood-opacity": "1", "result": "near-color"},
     )
     ET.SubElement(
         shadow_filter,

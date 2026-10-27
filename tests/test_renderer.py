@@ -136,10 +136,15 @@ def test_soft_shadow_replaces_outline_on_existing_text(tmp_path: Path) -> None:
         for element in shadow_filter
         if element.tag.endswith("feGaussianBlur")
     ]
-    assert blur_deviations == ["3", "1.2"]
+    assert blur_deviations == ["6.4", "1.6"]
+    assert next(
+        element.attrib["radius"]
+        for element in shadow_filter
+        if element.tag.endswith("feMorphology")
+    ) == "2.24"
     assert any(
         element.tag.endswith("feFlood")
-        and element.attrib["flood-opacity"] == "0.98"
+        and element.attrib["flood-opacity"] == "1"
         for element in shadow_filter
     )
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
@@ -172,6 +177,52 @@ def test_soft_shadow_replaces_outline_on_shape_readings(tmp_path: Path) -> None:
     assert text.attrib["filter"].startswith("url(#ha-text-shadow-")
     assert b"feGaussianBlur" in svg
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_readability_halo_is_relatively_larger_for_small_text(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <text id="small" x="10" y="20" font-size="4">—</text>
+  <text id="large" x="10" y="60" font-size="16">—</text>
+</svg>
+"""
+    renderer = _renderer(
+        tmp_path,
+        source,
+        assignments=(
+            ElementAssignment(
+                "small",
+                display_entity_ids=("sensor.room_temperature",),
+                improve_readability=True,
+            ),
+            ElementAssignment(
+                "large",
+                display_entity_ids=("sensor.room_temperature",),
+                improve_readability=True,
+            ),
+        ),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.room_temperature": "22"},
+        {"sensor.room_temperature": "22 °C"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    filters = {item.attrib["id"]: item for item in root.iter() if item.tag.endswith("filter")}
+    small_radius = next(
+        float(item.attrib["radius"])
+        for item in filters["ha-text-shadow-small"]
+        if item.tag.endswith("feMorphology")
+    )
+    large_radius = next(
+        float(item.attrib["radius"])
+        for item in filters["ha-text-shadow-large"]
+        if item.tag.endswith("feMorphology")
+    )
+
+    assert small_radius / 4 > large_radius / 16
 
 
 def test_ignores_embedded_svg_configuration_metadata(tmp_path: Path) -> None:
