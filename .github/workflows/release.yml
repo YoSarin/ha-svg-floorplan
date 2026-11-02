@@ -92,4 +92,4 @@ jobs:
         run: |
           gh release create "v${VERSION}" \
             --title "${VERSION}" \
-            --notes "Automated release after the main-branch test suite passed."
+            --generate-notes
