@@ -72,6 +72,20 @@ jobs:
               output.write(f"version={manifest['version']}\n")
           PY
 
+      - name: Generate changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          previous_tag="$(git describe --tags --abbrev=0)"
+          {
+            printf "## Changes since %s\n\n" "${previous_tag}"
+            git log --no-merges --reverse \
+              --format="- %s ([%h](https://github.com/${GITHUB_REPOSITORY}/commit/%H))" \
+              "${previous_tag}..HEAD"
+            printf "\n\n[Full changelog](https://github.com/${GITHUB_REPOSITORY}/compare/%s...v%s)\n" \
+              "${previous_tag}" "${VERSION}"
+          } > release-notes.md
+
       - name: Commit version and tag release
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -92,4 +106,4 @@ jobs:
         run: |
           gh release create "v${VERSION}" \
             --title "${VERSION}" \
-            --generate-notes
+            --notes-file release-notes.md
