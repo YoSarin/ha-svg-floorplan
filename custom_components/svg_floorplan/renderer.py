@@ -1035,10 +1035,10 @@ def _add_snapshot_timestamp(
 ) -> tuple[ET.Element, str]:
     """Add a timestamp in a corner using foreground and halo colors sampled from its background."""
     x_min, y_min, width, height = _canvas_bounds(root)
-    timestamp = f"Updated: {generated_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    timestamp = generated_at.strftime("%H:%M")
     margin = min(width, height) * 0.025
     font_size = min(
-        min(width, height) * 0.03,
+        min(width, height) * 0.04,
         (width - 2 * margin) / _text_width_units(timestamp),
     )
     if font_size <= 0:

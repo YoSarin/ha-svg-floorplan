@@ -275,7 +275,8 @@ def test_snapshot_timestamp_uses_corner_background_for_text_contrast(
         and element.attrib["result"] == "near-color"
     )
 
-    assert left_text.text == "Updated: 2026-11-06 18:51:02"
+    assert left_text.text == "18:51"
+    assert float(left_text.attrib["font-size"]) == pytest.approx(24)
     assert left_text.attrib["fill"] == "#FFFFFF"
     assert left_text.attrib["text-anchor"] == "start"
     assert left_flood.attrib["flood-color"] == "#000000"
@@ -317,6 +318,7 @@ def test_snapshot_timestamp_supports_each_corner(
     y = float(text.attrib["y"])
 
     assert text.attrib["text-anchor"] == anchor
+    assert float(text.attrib["font-size"]) == pytest.approx(24)
     assert (y > 300) is bool(baseline)
 
 
