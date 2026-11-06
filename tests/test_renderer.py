@@ -3,6 +3,7 @@
 import importlib
 import json
 import sys
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from types import ModuleType
@@ -27,6 +28,7 @@ _configuration_module = importlib.import_module(
     "custom_components.svg_floorplan.configuration"
 )
 load_configuration = _configuration_module.load_configuration
+load_timestamp_position = _configuration_module.load_timestamp_position
 save_configuration = _configuration_module.save_configuration
 
 SAMPLE_SVG = """\
@@ -223,6 +225,99 @@ def test_readability_halo_is_relatively_larger_for_small_text(
     )
 
     assert small_radius / 4 > large_radius / 16
+
+
+def test_snapshot_timestamp_uses_corner_background_for_text_contrast(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"
+     viewBox="0 0 1000 600">
+  <rect width="1000" height="600" fill="white"/>
+  <rect width="500" height="150" fill="black"/>
+</svg>
+"""
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(source, encoding="utf-8")
+    generated_at = datetime(2026, 11, 6, 18, 51, 2, tzinfo=timezone.utc)
+
+    top_left = FloorplanRenderer(svg_path, timestamp_position="top-left")
+    left_svg, left_png = top_left.render({}, generated_at=generated_at)
+    left_root = _renderer_module.ET.fromstring(left_svg)
+    left_text = next(
+        element for element in left_root.iter()
+        if element.attrib.get("id") == "ha-snapshot-timestamp"
+    )
+    left_filter = next(
+        element for element in left_root.iter()
+        if element.attrib.get("id") == left_text.attrib["filter"][5:-1]
+    )
+    left_flood = next(
+        element for element in left_filter
+        if element.tag.endswith("feFlood")
+        and element.attrib["result"] == "near-color"
+    )
+
+    top_right = FloorplanRenderer(svg_path, timestamp_position="top-right")
+    right_svg, right_png = top_right.render({}, generated_at=generated_at)
+    right_root = _renderer_module.ET.fromstring(right_svg)
+    right_text = next(
+        element for element in right_root.iter()
+        if element.attrib.get("id") == "ha-snapshot-timestamp"
+    )
+    right_filter = next(
+        element for element in right_root.iter()
+        if element.attrib.get("id") == right_text.attrib["filter"][5:-1]
+    )
+    right_flood = next(
+        element for element in right_filter
+        if element.tag.endswith("feFlood")
+        and element.attrib["result"] == "near-color"
+    )
+
+    assert left_text.text == "Updated: 2026-11-06 18:51:02"
+    assert left_text.attrib["fill"] == "#FFFFFF"
+    assert left_text.attrib["text-anchor"] == "start"
+    assert left_flood.attrib["flood-color"] == "#000000"
+    assert right_text.attrib["fill"] == "#111111"
+    assert right_text.attrib["text-anchor"] == "end"
+    assert right_flood.attrib["flood-color"] == "#FFFFFF"
+    assert left_png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert right_png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.parametrize(
+    ("position", "anchor", "baseline"),
+    (
+        ("top-left", "start", 0),
+        ("top-right", "end", 0),
+        ("bottom-left", "start", 1),
+        ("bottom-right", "end", 1),
+    ),
+)
+def test_snapshot_timestamp_supports_each_corner(
+    tmp_path: Path, position: str, anchor: str, baseline: int
+) -> None:
+    svg_path = tmp_path / "floorplan.svg"
+    svg_path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600">'
+        '<rect width="1000" height="600" fill="white"/></svg>',
+        encoding="utf-8",
+    )
+    renderer = FloorplanRenderer(svg_path, timestamp_position=position)
+
+    svg, _ = renderer.render(
+        {}, generated_at=datetime(2026, 11, 6, tzinfo=timezone.utc)
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    text = next(
+        element for element in root.iter()
+        if element.attrib.get("id") == "ha-snapshot-timestamp"
+    )
+    y = float(text.attrib["y"])
+
+    assert text.attrib["text-anchor"] == anchor
+    assert (y > 300) is bool(baseline)
 
 
 def test_ignores_embedded_svg_configuration_metadata(tmp_path: Path) -> None:
@@ -662,7 +757,12 @@ def test_json_sidecar_stores_multiple_independent_configurations(
         ),
     )
     source_bytes = source_path.read_bytes()
-    save_configuration(source_path, "temperature", temperature_assignments)
+    save_configuration(
+        source_path,
+        "temperature",
+        temperature_assignments,
+        "top-right",
+    )
     save_configuration(source_path, "humidity", humidity_assignments)
 
     temperature = FloorplanRenderer(
@@ -682,6 +782,8 @@ def test_json_sidecar_stores_multiple_independent_configurations(
 
     assert temperature.entity_ids == ("sensor.temperature",)
     assert temperature.assignments[0].improve_readability
+    assert load_timestamp_position(source_path, "temperature") == "top-right"
+    assert load_timestamp_position(source_path, "humidity") is None
     assert humidity.entity_ids == ("sensor.humidity",)
     assert b"22 \xc2\xb0C" in temperature_svg
     assert b"45 %" not in temperature_svg
@@ -691,6 +793,7 @@ def test_json_sidecar_stores_multiple_independent_configurations(
     assert b"data-ha-" not in source_bytes
     json_data = json.loads(source_path.with_suffix(".json").read_text("utf-8"))
     assert set(json_data["configurations"]) == {"temperature", "humidity"}
+    assert json_data["configurations"]["temperature"]["timestamp_position"] == "top-right"
     assert json_data["configurations"]["temperature"]["assignments"][0][
         "improve_readability"
     ]
@@ -722,6 +825,7 @@ def test_loads_legacy_text_shadow_configuration(tmp_path: Path) -> None:
     assignment = load_configuration(source_path, "legacy")[0]
 
     assert assignment.improve_readability
+    assert load_timestamp_position(source_path, "legacy") is None
 
 
 def test_skipped_elements_persist_in_json_configuration(

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import math
 import re
+import struct
 import xml.etree.ElementTree as ET
+import zlib
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import resvg_py
@@ -22,6 +25,7 @@ from .const import (
     DEFAULT_PURPLE_COLOR,
     FONT_FILES,
     MAX_SVG_BYTES,
+    TIMESTAMP_POSITIONS,
     UNAVAILABLE_COLOR,
 )
 
@@ -53,6 +57,213 @@ TEXT_OVERLAY_TAGS = {"circle", "ellipse", "path", "polygon", "rect"}
 
 class FloorplanError(ValueError):
     """Raised when the SVG floor plan is invalid or cannot be rendered."""
+
+
+def _png_pixels_at(
+    png: bytes, points: tuple[tuple[int, int], ...]
+) -> tuple[tuple[int, int, int, int], ...]:
+    """Decode selected pixels from the renderer's 8-bit PNG output."""
+    if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise FloorplanError("Could not inspect rendered PNG background")
+    offset = 8
+    width = height = bit_depth = color_type = interlace = 0
+    compressed = bytearray()
+    while offset + 12 <= len(png):
+        length = struct.unpack_from(">I", png, offset)[0]
+        chunk_type = png[offset + 4 : offset + 8]
+        start = offset + 8
+        end = start + length
+        if end + 4 > len(png):
+            raise FloorplanError("Rendered PNG is truncated")
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", png[start:end]
+            )
+        elif chunk_type == b"IDAT":
+            compressed.extend(png[start:end])
+        elif chunk_type == b"IEND":
+            break
+        offset = end + 4
+    channels_by_type = {2: 3, 6: 4}
+    channels = channels_by_type.get(color_type)
+    if (
+        width <= 0
+        or height <= 0
+        or bit_depth != 8
+        or channels is None
+        or interlace != 0
+    ):
+        raise FloorplanError("Rendered PNG uses an unsupported pixel format")
+    row_size = width * channels
+    try:
+        image_data = zlib.decompress(compressed)
+    except zlib.error as err:
+        raise FloorplanError("Could not decode rendered PNG pixels") from err
+    if len(image_data) != height * (row_size + 1):
+        raise FloorplanError("Rendered PNG pixel data has an invalid size")
+
+    points_by_row: dict[int, list[tuple[int, int]]] = {}
+    for index, (x, y) in enumerate(points):
+        if 0 <= x < width and 0 <= y < height:
+            points_by_row.setdefault(y, []).append((index, x))
+    colors: list[tuple[int, int, int, int] | None] = [None] * len(points)
+    previous = bytearray(row_size)
+    source_offset = 0
+    for y in range(height):
+        filter_type = image_data[source_offset]
+        source_offset += 1
+        row = bytearray(image_data[source_offset : source_offset + row_size])
+        source_offset += row_size
+        for index in range(row_size):
+            left = row[index - channels] if index >= channels else 0
+            above = previous[index]
+            upper_left = previous[index - channels] if index >= channels else 0
+            if filter_type == 1:
+                row[index] = (row[index] + left) & 0xFF
+            elif filter_type == 2:
+                row[index] = (row[index] + above) & 0xFF
+            elif filter_type == 3:
+                row[index] = (row[index] + (left + above) // 2) & 0xFF
+            elif filter_type == 4:
+                prediction = left + above - upper_left
+                distances = (
+                    abs(prediction - left),
+                    abs(prediction - above),
+                    abs(prediction - upper_left),
+                )
+                predictor = (
+                    left
+                    if distances[0] <= distances[1] and distances[0] <= distances[2]
+                    else above
+                    if distances[1] <= distances[2]
+                    else upper_left
+                )
+                row[index] = (row[index] + predictor) & 0xFF
+            elif filter_type != 0:
+                raise FloorplanError("Rendered PNG uses an unsupported row filter")
+        for point_index, x in points_by_row.get(y, ()):
+            pixel_offset = x * channels
+            red, green, blue = row[pixel_offset : pixel_offset + 3]
+            alpha = row[pixel_offset + 3] if channels == 4 else 255
+            colors[point_index] = red, green, blue, alpha
+        previous = row
+    return tuple(
+        color if color is not None else (0, 0, 0, 0) for color in colors
+    )
+
+
+def _canvas_bounds(root: ET.Element) -> tuple[float, float, float, float]:
+    view_box = root.attrib.get("viewBox", "").replace(",", " ").split()
+    if len(view_box) == 4:
+        try:
+            bounds = tuple(map(float, view_box))
+        except ValueError as err:
+            raise FloorplanError("SVG viewBox must contain four numbers") from err
+        if all(math.isfinite(value) for value in bounds) and bounds[2] > 0 and bounds[3] > 0:
+            return bounds
+
+    def dimension(name: str, fallback: float) -> float:
+        value = root.attrib.get(name, "")
+        physical = PHYSICAL_LENGTH_RE.fullmatch(value)
+        if physical:
+            return float(physical.group(1)) * PIXELS_PER_UNIT[physical.group(2)]
+        match = re.fullmatch(r"\s*([+]?(?:\d+(?:\.\d*)?|\.\d+))(?:px)?\s*", value)
+        return float(match.group(1)) if match else fallback
+
+    width, height = dimension("width", 300), dimension("height", 150)
+    if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+        raise FloorplanError("SVG canvas dimensions must be positive finite numbers")
+    return 0.0, 0.0, width, height
+
+
+def _relative_luminance(color: tuple[int, int, int, int]) -> float | None:
+    red, green, blue, alpha = color
+    if alpha < 64:
+        return None
+
+    def linear(channel: int) -> float:
+        value = channel / 255
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+
+
+def _image_pixel_position(
+    root: ET.Element,
+    image_width: int,
+    image_height: int,
+    x: float,
+    y: float,
+) -> tuple[int, int]:
+    x_min, y_min, width, height = _canvas_bounds(root)
+    if "viewBox" not in root.attrib:
+        return (
+            round((x - x_min) * image_width / width),
+            round((y - y_min) * image_height / height),
+        )
+
+    alignment = root.attrib.get(
+        "preserveAspectRatio", "xMidYMid meet"
+    ).replace("defer", "").split()
+    if alignment and alignment[0] == "none":
+        return (
+            round((x - x_min) * image_width / width),
+            round((y - y_min) * image_height / height),
+        )
+    mode = alignment[1] if len(alignment) > 1 else "meet"
+    scale = (
+        max(image_width / width, image_height / height)
+        if mode == "slice"
+        else min(image_width / width, image_height / height)
+    )
+    extra_x = image_width - width * scale
+    extra_y = image_height - height * scale
+    x_alignment = alignment[0] if alignment else "xMidYMid"
+    offset_x = (
+        extra_x
+        if x_alignment.startswith("xMax")
+        else extra_x / 2
+        if x_alignment.startswith("xMid")
+        else 0
+    )
+    offset_y = (
+        extra_y
+        if x_alignment.endswith("YMax")
+        else extra_y / 2
+        if x_alignment.endswith("YMid")
+        else 0
+    )
+    return (
+        round(offset_x + (x - x_min) * scale),
+        round(offset_y + (y - y_min) * scale),
+    )
+
+
+def _rasterize_svg(svg: bytes) -> bytes:
+    """Rasterize serialized SVG bytes to PNG."""
+    try:
+        raster_root = ET.fromstring(svg)
+        _normalize_physical_dimensions(raster_root)
+        raster_svg = ET.tostring(
+            raster_root, encoding="utf-8", xml_declaration=True
+        )
+        font_directory = Path(__file__).with_name("fonts")
+        font_files = [
+            str(font_directory / font_file)
+            for font_file in FONT_FILES
+            if (font_directory / font_file).is_file()
+        ]
+        if len(font_files) != len(FONT_FILES):
+            raise FloorplanError(f"Bundled fonts are missing from {font_directory}")
+        return resvg_py.svg_to_bytes(
+            svg_string=raster_svg.decode("utf-8"),
+            font_files=font_files,
+            sans_serif_family="DejaVu Sans",
+        )
+    except FloorplanError:
+        raise
+    except Exception as err:
+        raise FloorplanError(f"Could not rasterize SVG as PNG: {err}") from err
 
 
 @dataclass(frozen=True)
@@ -317,7 +528,10 @@ def _text_font_size(element: ET.Element, root: ET.Element) -> float:
 
 
 def _apply_readability_halo(
-    root: ET.Element, element: ET.Element, used_ids: set[str]
+    root: ET.Element,
+    element: ET.Element,
+    used_ids: set[str],
+    halo_color: str = "#000000",
 ) -> None:
     """Add a strong, soft dark halo behind text and remove its hard outline."""
     element_id = _element_id(element) or "text"
@@ -359,7 +573,7 @@ def _apply_readability_halo(
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feFlood",
-        {"flood-color": "#000000", "flood-opacity": "0.97", "result": "wide-color"},
+        {"flood-color": halo_color, "flood-opacity": "0.97", "result": "wide-color"},
     )
     ET.SubElement(
         shadow_filter,
@@ -393,7 +607,7 @@ def _apply_readability_halo(
     ET.SubElement(
         shadow_filter,
         f"{{{SVG_NAMESPACE}}}feFlood",
-        {"flood-color": "#000000", "flood-opacity": "1", "result": "near-color"},
+        {"flood-color": halo_color, "flood-opacity": "1", "result": "near-color"},
     )
     ET.SubElement(
         shadow_filter,
@@ -813,6 +1027,100 @@ def _add_text_overlay(
     return text
 
 
+def _add_snapshot_timestamp(
+    root: ET.Element,
+    position: str,
+    generated_at: datetime,
+    used_ids: set[str],
+) -> tuple[ET.Element, str]:
+    """Add a timestamp in a corner using foreground and halo colors sampled from its background."""
+    x_min, y_min, width, height = _canvas_bounds(root)
+    timestamp = f"Updated: {generated_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    margin = min(width, height) * 0.025
+    font_size = min(
+        min(width, height) * 0.03,
+        (width - 2 * margin) / _text_width_units(timestamp),
+    )
+    if font_size <= 0:
+        raise FloorplanError("SVG canvas is too small for a timestamp")
+    right = position.endswith("right")
+    bottom = position.startswith("bottom")
+    text_x = x_min + width - margin if right else x_min + margin
+    text_y = y_min + height - margin if bottom else y_min + margin + font_size
+    text_width = font_size * _text_width_units(timestamp)
+    anchor = "end" if right else "start"
+
+    sample_x_min = (text_x - text_width if right else text_x) - font_size * 0.1
+    sample_x_max = (text_x if right else text_x + text_width) + font_size * 0.1
+    sample_y_min = text_y - font_size * 0.9
+    sample_y_max = text_y + font_size * 0.2
+    sample_root = deepcopy(root)
+    sample_root.set(
+        "viewBox",
+        f"{sample_x_min:g} {sample_y_min:g} "
+        f"{sample_x_max - sample_x_min:g} {sample_y_max - sample_y_min:g}",
+    )
+    sample_root.set("width", "700px")
+    sample_root.set("height", "100px")
+    sample_root.set("preserveAspectRatio", "none")
+    sample_png = _rasterize_svg(
+        ET.tostring(sample_root, encoding="utf-8", xml_declaration=True)
+    )
+    image_width, image_height = struct.unpack_from(">II", sample_png, 16)
+    sample_points: list[tuple[int, int]] = []
+    for row in range(3):
+        sample_y = text_y - font_size * 0.78 + (row + 0.5) * font_size * 0.9 / 3
+        for column in range(7):
+            sample_x = (
+                text_x - text_width + (column + 0.5) * text_width / 7
+                if right
+                else text_x + (column + 0.5) * text_width / 7
+            )
+            sample_points.append(
+                _image_pixel_position(
+                    sample_root, image_width, image_height, sample_x, sample_y
+                )
+            )
+
+    colors = _png_pixels_at(sample_png, tuple(sample_points))
+    luminances = [
+        luminance
+        for color in colors
+        if (luminance := _relative_luminance(color)) is not None
+    ]
+    background_is_dark = (
+        sum(luminances) / len(luminances) < 0.45 if luminances else True
+    )
+    text_color, halo_color = (
+        ("#FFFFFF", "#000000")
+        if background_is_dark
+        else ("#111111", "#FFFFFF")
+    )
+    text_id = "ha-snapshot-timestamp"
+    suffix = 2
+    while text_id in used_ids:
+        text_id = f"ha-snapshot-timestamp-{suffix}"
+        suffix += 1
+    used_ids.add(text_id)
+    text = ET.SubElement(
+        root,
+        f"{{{SVG_NAMESPACE}}}text",
+        {
+            "id": text_id,
+            "x": f"{text_x:g}",
+            "y": f"{text_y:g}",
+            "text-anchor": anchor,
+            "dominant-baseline": "auto",
+            "font-family": "sans-serif",
+            "font-size": f"{font_size:g}",
+            "fill": text_color,
+            "stroke": "none",
+        },
+    )
+    text.text = timestamp
+    return text, halo_color
+
+
 class FloorplanRenderer:
     """Render SVG and PNG variants from an SVG definition and entity states."""
 
@@ -820,6 +1128,7 @@ class FloorplanRenderer:
         self,
         source_path: Path,
         assignments: tuple[ElementAssignment, ...] = (),
+        timestamp_position: str | None = None,
     ) -> None:
         self.source_path = source_path
         try:
@@ -847,6 +1156,11 @@ class FloorplanRenderer:
 
         self._source = source
         self.assignments = assignments
+        if timestamp_position is not None and timestamp_position not in TIMESTAMP_POSITIONS:
+            raise FloorplanError(
+                f"Unsupported snapshot timestamp position {timestamp_position!r}"
+            )
+        self.timestamp_position = timestamp_position
         self.bindings, self.display_entities_by_element = _bindings(
             root, self.assignments
         )
@@ -911,6 +1225,7 @@ class FloorplanRenderer:
         self,
         states: dict[str, str],
         display_values: dict[str, str] | None = None,
+        generated_at: datetime | None = None,
     ) -> tuple[bytes, bytes]:
         """Return the updated SVG and its transparent PNG rendering."""
         try:
@@ -1024,30 +1339,14 @@ class FloorplanRenderer:
                 if improve_readability:
                     _apply_readability_halo(root, overlay, used_ids)
 
+        if self.timestamp_position is not None:
+            timestamp, halo_color = _add_snapshot_timestamp(
+                root,
+                self.timestamp_position,
+                generated_at or datetime.now().astimezone(),
+                used_ids,
+            )
+            _apply_readability_halo(root, timestamp, used_ids, halo_color)
         svg = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-        try:
-            raster_root = ET.fromstring(svg)
-            _normalize_physical_dimensions(raster_root)
-            raster_svg = ET.tostring(
-                raster_root, encoding="utf-8", xml_declaration=True
-            )
-            font_directory = Path(__file__).with_name("fonts")
-            font_files = [
-                str(font_directory / font_file)
-                for font_file in FONT_FILES
-                if (font_directory / font_file).is_file()
-            ]
-            if len(font_files) != len(FONT_FILES):
-                raise FloorplanError(
-                    f"Bundled fonts are missing from {font_directory}"
-                )
-            png = resvg_py.svg_to_bytes(
-                svg_string=raster_svg.decode("utf-8"),
-                font_files=font_files,
-                sans_serif_family="DejaVu Sans",
-            )
-        except FloorplanError:
-            raise
-        except Exception as err:
-            raise FloorplanError(f"Could not rasterize SVG as PNG: {err}") from err
+        png = _rasterize_svg(svg)
         return svg, png

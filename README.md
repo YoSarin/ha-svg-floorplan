@@ -63,6 +63,10 @@ no system fonts installed.
    for floor-plan-sized backdrops near their top-left edge; you can override
    the position. Enable **Improve reading contrast** to add a strong, soft
    dark halo on detailed backgrounds; it replaces the hard text outline.
+   The initial configuration form can also add the snapshot's generation
+   date and time, in Home Assistant's local time zone, to any image corner.
+   The timestamp color and halo are selected from the brightness of the
+   rendered background beneath it.
    Independently, choose an entity to control the element's
    color, which defaults to solid color. A numeric entity state is mapped
    through the color scale; fading to neutral gray along the shape edges or
@@ -101,6 +105,10 @@ placement uses the shape's center for room-sized shapes and the top-left edge
 for floor-plan-sized backdrops; you can choose a corner or center manually.
 **Improve reading contrast** adds a strong, soft dark halo around readings on
 complex backgrounds. When enabled, it removes the hard text outline.
+The output configuration can optionally include the snapshot's generation
+date and time, in Home Assistant's local time zone, in any corner. Its text
+and halo colors automatically switch for dark or light backgrounds at the
+selected corner.
 
 For each element, setup lets you select one or more devices and then choose
 display and color entities from the selected devices. All eligible entities
@@ -131,7 +139,8 @@ existing configurations. For example, `floorplans/house.json` has this shape:
           "neutralize": false,
           "device_ids": []
         }
-      ]
+      ],
+      "timestamp_position": "top-right"
     },
     "humidity": {
       "assignments": [

@@ -7,6 +7,12 @@ CONF_SVG_PATH: Final = "svg_path"
 CONF_SOURCE_SVG_PATH: Final = "source_svg_path"
 CONF_DEVICE_ID: Final = "device_id"
 CONF_CONFIGURATION_NAME: Final = "configuration_name"
+TIMESTAMP_POSITIONS: Final = (
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+)
 
 DEFAULT_MIN: Final = -20.0
 DEFAULT_COMFORT: Final = 10.0

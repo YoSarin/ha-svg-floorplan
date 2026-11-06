@@ -13,6 +13,7 @@ from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CONFIGURATION_NAME,
@@ -20,7 +21,7 @@ from .const import (
     DOMAIN,
     MAX_SVG_BYTES,
 )
-from .configuration import load_configuration
+from .configuration import load_configuration, load_timestamp_position
 from .renderer import FloorplanError, FloorplanRenderer
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def _render(
     states = _entity_states(hass, runtime_data.renderer)
     display_values = _entity_display_values(hass, runtime_data.renderer)
     return await hass.async_add_executor_job(
-        runtime_data.renderer.render, states, display_values
+        runtime_data.renderer.render, states, display_values, dt_util.now()
     )
 
 
@@ -117,8 +118,13 @@ async def async_setup_entry(
             path,
             configuration_name,
         )
+        timestamp_position = await hass.async_add_executor_job(
+            load_timestamp_position,
+            path,
+            configuration_name,
+        )
         renderer = await hass.async_add_executor_job(
-            FloorplanRenderer, path, assignments
+            FloorplanRenderer, path, assignments, timestamp_position
         )
         if not renderer.entity_ids:
             raise FloorplanError(

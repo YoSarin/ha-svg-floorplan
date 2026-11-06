@@ -3,10 +3,18 @@
     "step": {
       "user": {
         "title": "Add an SVG floor plan",
-        "description": "Enter the path to an SVG file under the Home Assistant configuration directory and a name for this output configuration. Add the same SVG again with another name to create an independent image pair. {details}",
+        "description": "Enter the path to an SVG file under the Home Assistant configuration directory and a name for this output configuration. Add the same SVG again with another name to create an independent image pair. Optionally add the snapshot generation time in one of the image corners. {details}",
         "data": {
           "svg_path": "Relative SVG path (for example floorplans/house.svg)",
-          "configuration_name": "Configuration name (for example temperature)"
+          "configuration_name": "Configuration name (for example temperature)",
+          "timestamp_position": "Show snapshot generation time and position"
+        }
+      },
+      "reconfigure": {
+        "title": "Snapshot timestamp",
+        "description": "Choose whether to show the time this image was generated and which corner to place it in.",
+        "data": {
+          "timestamp_position": "Show snapshot generation time and position"
         }
       },
       "assign": {

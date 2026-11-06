@@ -13,13 +13,18 @@ from homeassistant.helpers import selector
 from homeassistant.util import slugify
 
 from . import _source_path
-from .configuration import load_configuration, save_configuration
+from .configuration import (
+    load_configuration,
+    load_timestamp_position,
+    save_configuration,
+)
 from .const import (
     CONF_CONFIGURATION_NAME,
     CONF_DEVICE_ID,
     CONF_SOURCE_SVG_PATH,
     CONF_SVG_PATH,
     DOMAIN,
+    TIMESTAMP_POSITIONS,
 )
 from .renderer import (
     ElementAssignment,
@@ -41,6 +46,16 @@ _DISPLAY_POSITIONS = [
     {"label": "Top right", "value": "top-right"},
     {"label": "Bottom left", "value": "bottom-left"},
     {"label": "Bottom right", "value": "bottom-right"},
+]
+_TIMESTAMP_POSITION_OPTIONS = [
+    {"label": "Do not show timestamp", "value": "none"},
+    *[
+        {
+            "label": " ".join(part.capitalize() for part in position.split("-")),
+            "value": position,
+        }
+        for position in TIMESTAMP_POSITIONS
+    ],
 ]
 
 
@@ -104,6 +119,10 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             path = user_input[CONF_SVG_PATH].strip().replace("\\", "/")
             configuration_name = user_input[CONF_CONFIGURATION_NAME].strip()
+            timestamp_position = user_input.get("timestamp_position", "none")
+            self._timestamp_position = (
+                None if timestamp_position == "none" else timestamp_position
+            )
             if not configuration_name or not slugify(
                 configuration_name, separator="_"
             ):
@@ -114,6 +133,15 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         {
                             vol.Required(CONF_SVG_PATH): str,
                             vol.Required(CONF_CONFIGURATION_NAME): str,
+                            vol.Optional(
+                                "timestamp_position",
+                                default=self._timestamp_position or "none",
+                            ): selector.SelectSelector(
+                                selector.SelectSelectorConfig(
+                                    options=_TIMESTAMP_POSITION_OPTIONS,
+                                    mode=selector.SelectSelectorMode.DROPDOWN,
+                                )
+                            ),
                         }
                     ),
                     errors=errors,
@@ -127,7 +155,10 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 source_path = _source_path(self.hass, path)
                 renderer = await self.hass.async_add_executor_job(
-                    FloorplanRenderer, source_path
+                    FloorplanRenderer,
+                    source_path,
+                    (),
+                    self._timestamp_position,
                 )
                 if renderer.entity_ids:
                     await self.hass.async_add_executor_job(renderer.render, {})
@@ -160,6 +191,16 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_SVG_PATH): str,
                     vol.Required(CONF_CONFIGURATION_NAME): str,
+                    vol.Optional(
+                        "timestamp_position",
+                        default=getattr(self, "_timestamp_position", None)
+                        or "none",
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_TIMESTAMP_POSITION_OPTIONS,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
                 }
             ),
             errors=errors,
@@ -170,7 +211,13 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Reconfigure assignments for an existing floor plan."""
-        del user_input
+        if user_input is not None:
+            timestamp_position = user_input.get("timestamp_position", "none")
+            self._timestamp_position = (
+                None if timestamp_position == "none" else timestamp_position
+            )
+            return await self.async_step_device()
+
         entry = self._get_reconfigure_entry()
         self._reconfigure_entry = entry
         source_path = entry.data.get(
@@ -185,9 +232,13 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 FloorplanRenderer, source
             )
             existing_assignments: tuple[ElementAssignment, ...] = ()
+            timestamp_position = None
             if CONF_CONFIGURATION_NAME in entry.data:
                 existing_assignments = await self.hass.async_add_executor_job(
                     load_configuration, source, self._configuration_name
+                )
+                timestamp_position = await self.hass.async_add_executor_job(
+                    load_timestamp_position, source, self._configuration_name
                 )
             if not renderer.assignable_elements:
                 return self.async_abort(
@@ -212,7 +263,23 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         self._assignment_index = 0
         self._legacy_device_id = entry.data.get(CONF_DEVICE_ID)
-        return await self.async_step_device()
+        self._timestamp_position = timestamp_position
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "timestamp_position",
+                        default=timestamp_position or "none",
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_TIMESTAMP_POSITION_OPTIONS,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    )
+                }
+            ),
+        )
 
     def _infer_device_ids(
         self, assignment: ElementAssignment | None
@@ -380,6 +447,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         FloorplanRenderer,
                         source_path,
                         assignments,
+                        self._timestamp_position,
                     )
                     await self.hass.async_add_executor_job(renderer.render, {})
                     await self.hass.async_add_executor_job(
@@ -387,6 +455,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         source_path,
                         self._configuration_name,
                         assignments,
+                        self._timestamp_position,
                     )
                     _LOGGER.info(
                         "Saved SVG floor plan configuration %s for %s",
@@ -578,6 +647,7 @@ class SvgFloorplanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             svg_path,
             self._configuration_name,
             assignments,
+            self._timestamp_position,
         )
         data = {
             CONF_SVG_PATH: path,

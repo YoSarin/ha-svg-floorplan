@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+from .const import TIMESTAMP_POSITIONS
 from .renderer import ElementAssignment, FloorplanError
 
 CONFIGURATION_VERSION = 1
@@ -18,13 +19,10 @@ def configuration_path(source_path: Path) -> Path:
     return source_path.with_suffix(".json")
 
 
-def load_configuration(
-    source_path: Path, name: str
-) -> tuple[ElementAssignment, ...]:
-    """Load one named configuration from its SVG's JSON sidecar."""
+def _read_configuration_file(source_path: Path) -> dict[str, Any]:
     path = configuration_path(source_path)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data: Any = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as err:
         raise FloorplanError(f"Cannot read configuration JSON {path}: {err}") from err
     if (
@@ -33,6 +31,15 @@ def load_configuration(
         or not isinstance(data.get("configurations"), dict)
     ):
         raise FloorplanError(f"Configuration JSON {path} has an unsupported format")
+    return data
+
+
+def load_configuration(
+    source_path: Path, name: str
+) -> tuple[ElementAssignment, ...]:
+    """Load one named configuration from its SVG's JSON sidecar."""
+    path = configuration_path(source_path)
+    data = _read_configuration_file(source_path)
     configuration = data["configurations"].get(name)
     if not isinstance(configuration, dict) or not isinstance(
         configuration.get("assignments"), list
@@ -59,33 +66,41 @@ def load_configuration(
     return tuple(assignments)
 
 
+def load_timestamp_position(source_path: Path, name: str) -> str | None:
+    """Load and validate the optional snapshot timestamp position."""
+    data = _read_configuration_file(source_path)
+    configuration = data["configurations"].get(name)
+    if not isinstance(configuration, dict):
+        raise FloorplanError(
+            f"Configuration {name!r} is missing from JSON file "
+            f"{source_path.with_suffix('.json')}"
+        )
+    position = configuration.get("timestamp_position")
+    if position is not None and position not in TIMESTAMP_POSITIONS:
+        raise FloorplanError(
+            f"Configuration {name!r} has an invalid timestamp position"
+        )
+    return position
+
+
 def save_configuration(
     source_path: Path,
     name: str,
     assignments: tuple[ElementAssignment, ...],
+    timestamp_position: str | None = None,
 ) -> None:
     """Persist one configuration, preserving other configurations for the SVG."""
     path = configuration_path(source_path)
     if path.exists():
-        try:
-            data: Any = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as err:
-            raise FloorplanError(
-                f"Cannot read configuration JSON {path}: {err}"
-            ) from err
-        if (
-            not isinstance(data, dict)
-            or data.get("version") != CONFIGURATION_VERSION
-            or not isinstance(data.get("configurations"), dict)
-        ):
-            raise FloorplanError(
-                f"Configuration JSON {path} has an unsupported format"
-            )
+        data = _read_configuration_file(source_path)
     else:
         data = {"version": CONFIGURATION_VERSION, "configurations": {}}
 
+    if timestamp_position is not None and timestamp_position not in TIMESTAMP_POSITIONS:
+        raise FloorplanError("Configuration has an invalid timestamp position")
     data["configurations"][name] = {
-        "assignments": [asdict(assignment) for assignment in assignments]
+        "assignments": [asdict(assignment) for assignment in assignments],
+        "timestamp_position": timestamp_position,
     }
     temporary_path: Path | None = None
     try:
