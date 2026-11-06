@@ -81,8 +81,12 @@ named configuration in the JSON sidecar and reloads the entry.
 Each named configuration creates SVG and PNG entities using the pattern
 `image.floorplan_{svgName}_{configurationName}_{fileExtension}` (for example,
 `image.floorplan_house_temperature_png` and
-`image.floorplan_house_humidity_png`). Use the PNG image entity with the Home
-Assistant Companion app's Android Picture widget.
+`image.floorplan_house_humidity_png`). The image entity updates in Home
+Assistant whenever a referenced entity changes. The Companion app's Android
+Picture widget does not refresh on every entity update: it refreshes hourly or
+when tapped. Set the widget's tap action to **Refresh** for on-demand updates.
+For a view that updates immediately with entity changes, use the image entity
+on a Home Assistant dashboard instead.
 
 ## JSON configuration
 
