@@ -3,7 +3,7 @@
 import importlib
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from types import ModuleType
@@ -30,6 +30,10 @@ _configuration_module = importlib.import_module(
 load_configuration = _configuration_module.load_configuration
 load_timestamp_position = _configuration_module.load_timestamp_position
 save_configuration = _configuration_module.save_configuration
+_battery_module = importlib.import_module(
+    "custom_components.svg_floorplan.battery"
+)
+battery_needs_warning = _battery_module.battery_needs_warning
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -71,6 +75,67 @@ def test_renders_value_and_interpolated_color(tmp_path: Path) -> None:
     assert b"22 \xc2\xb0C" in svg
     assert b"#E0DA90" in svg
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_battery_warning_thresholds() -> None:
+    now = datetime(2025, 2, 1, tzinfo=timezone.utc)
+    baseline_time = now - timedelta(days=30)
+
+    assert battery_needs_warning("14.9", (), now)
+    assert not battery_needs_warning("15", (), now)
+    assert battery_needs_warning("74.9", ((baseline_time, "100"),), now)
+    assert not battery_needs_warning("75", ((baseline_time, "100"),), now)
+    assert not battery_needs_warning("unavailable", ((baseline_time, "100"),), now)
+    assert not battery_needs_warning("74", (), now)
+
+
+def test_battery_warning_is_rendered_only_for_flagged_entity(
+    tmp_path: Path,
+) -> None:
+    source = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <text id="temperature" x="10" y="20">—</text>
+  <text id="humidity" x="10" y="40">—</text>
+</svg>
+"""
+    renderer = _renderer(
+        tmp_path,
+        source,
+        assignments=(
+            ElementAssignment(
+                "temperature", display_entity_ids=("sensor.temperature",)
+            ),
+            ElementAssignment(
+                "humidity", display_entity_ids=("sensor.humidity",)
+            ),
+        ),
+    )
+
+    svg, _ = renderer.render(
+        {"sensor.temperature": "22", "sensor.humidity": "45"},
+        {"sensor.temperature": "22 °C", "sensor.humidity": "45 %"},
+        battery_warning_entities={"sensor.temperature"},
+    )
+    root = _renderer_module.ET.fromstring(svg)
+    texts = {
+        element.attrib["id"]: element
+        for element in root.iter()
+        if element.tag.endswith("text")
+    }
+
+    temperature_badge = [
+        element
+        for element in texts["temperature"].iter()
+        if element.attrib.get("baseline-shift") == "super"
+    ]
+    humidity_badge = [
+        element
+        for element in texts["humidity"].iter()
+        if element.attrib.get("baseline-shift") == "super"
+    ]
+    assert len(temperature_badge) == 1
+    assert temperature_badge[0].text == "▲"
+    assert not humidity_badge
 
 
 def test_renders_text_in_png(tmp_path: Path) -> None:

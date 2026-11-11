@@ -446,7 +446,11 @@ def _add_edge_fade_mask(
         mask.append(edge)
 
 
-def _set_text_lines(element: ET.Element, lines: tuple[str, ...]) -> None:
+def _set_text_lines(
+    element: ET.Element,
+    lines: tuple[str, ...],
+    warning_lines: tuple[bool, ...] = (),
+) -> None:
     for child in list(element):
         element.remove(child)
     element.text = None
@@ -457,6 +461,21 @@ def _set_text_lines(element: ET.Element, lines: tuple[str, ...]) -> None:
             attributes["x"] = x
         span = ET.SubElement(element, f"{{{SVG_NAMESPACE}}}tspan", attributes)
         span.text = line
+        if index < len(warning_lines) and warning_lines[index]:
+            warning = ET.SubElement(
+                span,
+                f"{{{SVG_NAMESPACE}}}tspan",
+                {
+                    "baseline-shift": "super",
+                    "dx": "0.12em",
+                    "font-size": "70%",
+                    "fill": "#FFC107",
+                    "stroke": "#111111",
+                    "stroke-width": "0.08em",
+                    "paint-order": "stroke",
+                },
+            )
+            warning.text = "▲"
 
 
 def _remove_text_outline(element: ET.Element) -> None:
@@ -855,6 +874,7 @@ def _add_text_overlay(
     position: str,
     root: ET.Element,
     transform_chain: tuple[str, ...],
+    warning_lines: tuple[bool, ...] = (),
 ) -> ET.Element:
     """Place sensor readings centered and scaled within an SVG shape."""
     tag = element.tag.rsplit("}", 1)[-1]
@@ -1004,7 +1024,7 @@ def _add_text_overlay(
             "paint-order": "stroke",
         },
     )
-    _set_text_lines(text, lines)
+    _set_text_lines(text, lines, warning_lines)
     max_line_width = inner_width
     for span, line in zip(
         (child for child in text if child.tag.endswith("tspan")),
@@ -1226,6 +1246,7 @@ class FloorplanRenderer:
         states: dict[str, str],
         display_values: dict[str, str] | None = None,
         generated_at: datetime | None = None,
+        battery_warning_entities: set[str] | None = None,
     ) -> tuple[bytes, bytes]:
         """Return the updated SVG and its transparent PNG rendering."""
         try:
@@ -1298,15 +1319,22 @@ class FloorplanRenderer:
                 _set_fill(element, NEUTRAL_COLOR)
 
         display_values = display_values or {}
-        text_overlays: list[tuple[ET.Element, tuple[str, ...], str, bool]] = []
+        battery_warning_entities = battery_warning_entities or set()
+        text_overlays: list[
+            tuple[ET.Element, tuple[str, ...], str, bool, tuple[bool, ...]]
+        ] = []
         for element_id, entity_ids in self.display_entities_by_element.items():
             lines = tuple(
                 display_values.get(entity_id, f"{entity_id}: {states.get(entity_id, '—')}")
                 for entity_id in entity_ids
             )
+            warning_lines = tuple(
+                entity_id in battery_warning_entities
+                for entity_id in entity_ids
+            )
             element = elements_by_id[element_id]
             if element.tag.rsplit("}", 1)[-1] == "text":
-                _set_text_lines(element, lines)
+                _set_text_lines(element, lines, warning_lines)
                 if element_id in self.readability_halo_elements:
                     _apply_readability_halo(root, element, used_ids)
             else:
@@ -1316,12 +1344,19 @@ class FloorplanRenderer:
                         lines,
                         self.display_position_by_element.get(element_id, "auto"),
                         element_id in self.readability_halo_elements,
+                        warning_lines,
                     )
                 )
 
         if text_overlays:
             overlay_layer = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}g")
-            for element, lines, position, improve_readability in text_overlays:
+            for (
+                element,
+                lines,
+                position,
+                improve_readability,
+                warning_lines,
+            ) in text_overlays:
                 transform_chain = []
                 ancestor = parents.get(element)
                 while ancestor is not None and ancestor is not root:
@@ -1335,6 +1370,7 @@ class FloorplanRenderer:
                     position,
                     root,
                     tuple(reversed(transform_chain)),
+                    warning_lines,
                 )
                 if improve_readability:
                     _apply_readability_halo(root, overlay, used_ids)
