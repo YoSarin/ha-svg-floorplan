@@ -19,7 +19,11 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.recorder import DATA_INSTANCE
 from homeassistant.util import dt as dt_util
 
-from .battery import BATTERY_TREND_WINDOW, battery_needs_warning
+from .battery import (
+    BATTERY_TREND_WINDOW,
+    CRITICAL_BATTERY_WARNING_COLOR,
+    battery_warning_color,
+)
 from .configuration import load_configuration, load_timestamp_position
 from .const import (
     CONF_CONFIGURATION_NAME,
@@ -148,7 +152,7 @@ async def _battery_warning_entities(
     hass: HomeAssistant,
     runtime_data: FloorplanRuntimeData,
     now: datetime,
-) -> set[str]:
+) -> dict[str, str]:
     """Return temperature entities whose associated batteries need a warning."""
     battery_ids = tuple(
         dict.fromkeys(
@@ -160,7 +164,7 @@ async def _battery_warning_entities(
         )
     )
     if not battery_ids:
-        return set()
+        return {}
 
     history_by_entity = {}
     if runtime_data.battery_history_available:
@@ -179,7 +183,7 @@ async def _battery_warning_entities(
             )
         )
 
-    battery_warnings = set()
+    battery_warning_colors = {}
     for battery_id in battery_ids:
         state = hass.states.get(battery_id)
         current_state = state.state if state is not None else None
@@ -187,14 +191,25 @@ async def _battery_warning_entities(
             (item.last_updated, item.state)
             for item in history_by_entity.get(battery_id, ())
         )
-        if battery_needs_warning(current_state, historical_states, now):
-            battery_warnings.add(battery_id)
+        if warning_color := battery_warning_color(
+            current_state, historical_states, now
+        ):
+            battery_warning_colors[battery_id] = warning_color
 
     return {
-        temperature_entity
+        temperature_entity: max(
+            (
+                battery_warning_colors[battery_id]
+                for battery_id in battery_entities
+            ),
+            key=lambda color: color == CRITICAL_BATTERY_WARNING_COLOR,
+        )
         for temperature_entity, battery_entities
         in runtime_data.battery_sensors_by_temperature_entity.items()
-        if battery_warnings.intersection(battery_entities)
+        if any(
+            battery_id in battery_warning_colors
+            for battery_id in battery_entities
+        )
     }
 
 

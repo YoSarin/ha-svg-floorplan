@@ -34,6 +34,7 @@ _battery_module = importlib.import_module(
     "custom_components.svg_floorplan.battery"
 )
 battery_needs_warning = _battery_module.battery_needs_warning
+battery_warning_color = _battery_module.battery_warning_color
 
 SAMPLE_SVG = """\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -87,6 +88,14 @@ def test_battery_warning_thresholds() -> None:
     assert not battery_needs_warning("75", ((baseline_time, "100"),), now)
     assert not battery_needs_warning("unavailable", ((baseline_time, "100"),), now)
     assert not battery_needs_warning("74", (), now)
+    assert battery_warning_color("7.9", (), now) == "#F44336"
+    assert battery_warning_color("8", (), now) == "#FFC107"
+    assert battery_warning_color("14.9", (), now) == "#FFC107"
+    assert (
+        battery_warning_color("74.9", ((baseline_time, "100"),), now)
+        == "#FFC107"
+    )
+    assert battery_warning_color("15", (), now) is None
 
 
 def test_battery_warning_is_rendered_only_for_flagged_entity(
@@ -111,10 +120,14 @@ def test_battery_warning_is_rendered_only_for_flagged_entity(
         ),
     )
 
-    svg, _ = renderer.render(
+    svg, warning_png = renderer.render(
         {"sensor.temperature": "22", "sensor.humidity": "45"},
         {"sensor.temperature": "22 °C", "sensor.humidity": "45 %"},
-        battery_warning_entities={"sensor.temperature"},
+        battery_warning_entities={"sensor.temperature": "#F44336"},
+    )
+    _, plain_png = renderer.render(
+        {"sensor.temperature": "22", "sensor.humidity": "45"},
+        {"sensor.temperature": "22 °C", "sensor.humidity": "45 %"},
     )
     root = _renderer_module.ET.fromstring(svg)
     texts = {
@@ -123,19 +136,19 @@ def test_battery_warning_is_rendered_only_for_flagged_entity(
         if element.tag.endswith("text")
     }
 
-    temperature_badge = [
+    all_battery_icons = [
         element
-        for element in texts["temperature"].iter()
-        if element.attrib.get("baseline-shift") == "super"
+        for element in root.iter()
+        if "ha-battery-warning" in element.attrib.get("class", "")
     ]
-    humidity_badge = [
-        element
-        for element in texts["humidity"].iter()
-        if element.attrib.get("baseline-shift") == "super"
-    ]
-    assert len(temperature_badge) == 1
-    assert temperature_badge[0].text == "▲"
-    assert not humidity_badge
+    assert len(all_battery_icons) == 1
+    assert all_battery_icons[0].find("{http://www.w3.org/2000/svg}rect").attrib[
+        "fill"
+    ] == "#111111"
+    assert all_battery_icons[0].findall(
+        "{http://www.w3.org/2000/svg}rect"
+    )[-1].attrib["fill"] == "#F44336"
+    assert warning_png != plain_png
 
 
 def test_renders_text_in_png(tmp_path: Path) -> None:

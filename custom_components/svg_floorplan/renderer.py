@@ -449,7 +449,6 @@ def _add_edge_fade_mask(
 def _set_text_lines(
     element: ET.Element,
     lines: tuple[str, ...],
-    warning_lines: tuple[bool, ...] = (),
 ) -> None:
     for child in list(element):
         element.remove(child)
@@ -461,21 +460,92 @@ def _set_text_lines(
             attributes["x"] = x
         span = ET.SubElement(element, f"{{{SVG_NAMESPACE}}}tspan", attributes)
         span.text = line
-        if index < len(warning_lines) and warning_lines[index]:
-            warning = ET.SubElement(
-                span,
-                f"{{{SVG_NAMESPACE}}}tspan",
-                {
-                    "baseline-shift": "super",
-                    "dx": "0.12em",
-                    "font-size": "70%",
-                    "fill": "#FFC107",
-                    "stroke": "#111111",
-                    "stroke-width": "0.08em",
-                    "paint-order": "stroke",
-                },
-            )
-            warning.text = "▲"
+
+
+def _numeric_svg_value(value: str | None) -> float | None:
+    if value is None:
+        return None
+    match = re.fullmatch(
+        r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:px)?\s*", value
+    )
+    return float(match.group(1)) if match else None
+
+
+def _add_battery_icons(
+    parent: ET.Element,
+    lines: tuple[str, ...],
+    warning_colors: tuple[str | None, ...],
+    x: float,
+    y: float,
+    font_size: float,
+    text_anchor: str,
+    transform: str | None = None,
+) -> None:
+    """Draw battery warning icons as vector shapes beside text readings."""
+    for index, (line, color) in enumerate(zip(lines, warning_colors)):
+        if color is None:
+            continue
+        line_width = font_size * _text_width_units(line)
+        line_x = (
+            x - line_width / 2
+            if text_anchor == "middle"
+            else x - line_width
+            if text_anchor == "end"
+            else x
+        )
+        icon_x = line_x + line_width + font_size * 0.08
+        baseline_y = y + index * font_size * 1.2
+        icon_y = baseline_y - font_size * 0.82
+        icon = ET.SubElement(
+            parent,
+            f"{{{SVG_NAMESPACE}}}g",
+            {
+                "class": "ha-battery-warning",
+                "transform": (
+                    f"translate({icon_x:g} {icon_y:g}) "
+                    f"scale({font_size / 12:g})"
+                ),
+                "aria-label": "Battery warning",
+            },
+        )
+        if transform:
+            icon.set("transform", f"{transform} {icon.attrib['transform']}")
+        ET.SubElement(
+            icon,
+            f"{{{SVG_NAMESPACE}}}rect",
+            {
+                "x": "0.5",
+                "y": "2",
+                "width": "9",
+                "height": "8",
+                "rx": "1",
+                "fill": "#111111",
+            },
+        )
+        ET.SubElement(
+            icon,
+            f"{{{SVG_NAMESPACE}}}rect",
+            {
+                "x": "9",
+                "y": "4",
+                "width": "2",
+                "height": "4",
+                "rx": "0.5",
+                "fill": "#111111",
+            },
+        )
+        ET.SubElement(
+            icon,
+            f"{{{SVG_NAMESPACE}}}rect",
+            {
+                "x": "1.5",
+                "y": "3",
+                "width": "7",
+                "height": "6",
+                "rx": "0.5",
+                "fill": color,
+            },
+        )
 
 
 def _remove_text_outline(element: ET.Element) -> None:
@@ -874,7 +944,7 @@ def _add_text_overlay(
     position: str,
     root: ET.Element,
     transform_chain: tuple[str, ...],
-    warning_lines: tuple[bool, ...] = (),
+    warning_colors: tuple[str | None, ...] = (),
 ) -> ET.Element:
     """Place sensor readings centered and scaled within an SVG shape."""
     tag = element.tag.rsplit("}", 1)[-1]
@@ -1024,7 +1094,7 @@ def _add_text_overlay(
             "paint-order": "stroke",
         },
     )
-    _set_text_lines(text, lines, warning_lines)
+    _set_text_lines(text, lines)
     max_line_width = inner_width
     for span, line in zip(
         (child for child in text if child.tag.endswith("tspan")),
@@ -1044,6 +1114,16 @@ def _add_text_overlay(
             {"transform": transform},
         )
     parent.append(text)
+    _add_battery_icons(
+        parent,
+        lines,
+        warning_colors,
+        text_x,
+        text_y,
+        font_size,
+        text_anchor,
+        text.attrib.get("transform"),
+    )
     return text
 
 
@@ -1246,7 +1326,7 @@ class FloorplanRenderer:
         states: dict[str, str],
         display_values: dict[str, str] | None = None,
         generated_at: datetime | None = None,
-        battery_warning_entities: set[str] | None = None,
+        battery_warning_entities: dict[str, str] | None = None,
     ) -> tuple[bytes, bytes]:
         """Return the updated SVG and its transparent PNG rendering."""
         try:
@@ -1319,22 +1399,43 @@ class FloorplanRenderer:
                 _set_fill(element, NEUTRAL_COLOR)
 
         display_values = display_values or {}
-        battery_warning_entities = battery_warning_entities or set()
+        battery_warning_entities = battery_warning_entities or {}
         text_overlays: list[
-            tuple[ET.Element, tuple[str, ...], str, bool, tuple[bool, ...]]
+            tuple[ET.Element, tuple[str, ...], str, bool, tuple[str | None, ...]]
         ] = []
         for element_id, entity_ids in self.display_entities_by_element.items():
             lines = tuple(
                 display_values.get(entity_id, f"{entity_id}: {states.get(entity_id, '—')}")
                 for entity_id in entity_ids
             )
-            warning_lines = tuple(
-                entity_id in battery_warning_entities
+            warning_colors = tuple(
+                battery_warning_entities.get(entity_id)
                 for entity_id in entity_ids
             )
             element = elements_by_id[element_id]
             if element.tag.rsplit("}", 1)[-1] == "text":
-                _set_text_lines(element, lines, warning_lines)
+                _set_text_lines(element, lines)
+                x = _numeric_svg_value(element.attrib.get("x"))
+                y = _numeric_svg_value(element.attrib.get("y"))
+                font_size = _numeric_svg_value(element.attrib.get("font-size"))
+                if font_size is None:
+                    style = element.attrib.get("style", "")
+                    for declaration in style.split(";"):
+                        property_name, separator, value = declaration.partition(":")
+                        if separator and property_name.strip() == "font-size":
+                            font_size = _numeric_svg_value(value.strip())
+                            break
+                if x is not None and y is not None:
+                    _add_battery_icons(
+                        parents.get(element, root),
+                        lines,
+                        warning_colors,
+                        x,
+                        y,
+                        font_size or 16.0,
+                        element.attrib.get("text-anchor", "start"),
+                        element.attrib.get("transform"),
+                    )
                 if element_id in self.readability_halo_elements:
                     _apply_readability_halo(root, element, used_ids)
             else:
@@ -1344,7 +1445,7 @@ class FloorplanRenderer:
                         lines,
                         self.display_position_by_element.get(element_id, "auto"),
                         element_id in self.readability_halo_elements,
-                        warning_lines,
+                        warning_colors,
                     )
                 )
 
@@ -1355,7 +1456,7 @@ class FloorplanRenderer:
                 lines,
                 position,
                 improve_readability,
-                warning_lines,
+                warning_colors,
             ) in text_overlays:
                 transform_chain = []
                 ancestor = parents.get(element)
@@ -1370,7 +1471,7 @@ class FloorplanRenderer:
                     position,
                     root,
                     tuple(reversed(transform_chain)),
-                    warning_lines,
+                    warning_colors,
                 )
                 if improve_readability:
                     _apply_readability_halo(root, overlay, used_ids)

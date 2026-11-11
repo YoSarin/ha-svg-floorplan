@@ -7,8 +7,11 @@ from datetime import datetime, timedelta
 from typing import Iterable
 
 LOW_BATTERY_THRESHOLD = 15.0
+CRITICAL_BATTERY_THRESHOLD = 8.0
 MONTHLY_BATTERY_DROP_THRESHOLD = 25.0
 BATTERY_TREND_WINDOW = timedelta(days=30)
+BATTERY_WARNING_COLOR = "#FFC107"
+CRITICAL_BATTERY_WARNING_COLOR = "#F44336"
 
 
 def battery_needs_warning(
@@ -41,3 +44,22 @@ def battery_needs_warning(
     if baseline is None:
         return False
     return current < baseline[1] * (1 - MONTHLY_BATTERY_DROP_THRESHOLD / 100)
+
+
+def battery_warning_color(
+    current_state: str | None,
+    historical_states: Iterable[tuple[datetime, str]],
+    now: datetime,
+) -> str | None:
+    """Return red for critical charge, orange for other battery warnings."""
+    try:
+        current = float(current_state) if current_state is not None else math.nan
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(current) or not 0 <= current <= 100:
+        return None
+    if current < CRITICAL_BATTERY_THRESHOLD:
+        return CRITICAL_BATTERY_WARNING_COLOR
+    if battery_needs_warning(current_state, historical_states, now):
+        return BATTERY_WARNING_COLOR
+    return None
